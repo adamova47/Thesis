@@ -1,4 +1,4 @@
-from MSOM import MSOM
+from src.MSOM import MSOM
 from joblib import Parallel, delayed
 from util import *
 
