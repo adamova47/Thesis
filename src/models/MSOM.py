@@ -1,6 +1,6 @@
 import numpy as np
 
-from SOM import SOM
+from .SOM import SOM
 
 class MSOM(SOM):
     """
@@ -49,6 +49,11 @@ class MSOM(SOM):
         self.context_weights = None
         self.context_vector = None
 
+        self.bmu_trajectory = []
+        self.merged_inputs = []
+        self.avg_adjust_main = []
+        self.context_norms = []
+
     def find_bmu(self, x):
         # compute distances on grid
         # d_input[i,j] = ||x - W[i,j]||^2
@@ -80,7 +85,7 @@ class MSOM(SOM):
         c_win = self.context_weights[bmu]
         self.context_vector = (1 - self.beta) * w_win + self.beta * c_win
 
-    def train(self, data, num_epochs: int = 100, mode: str = 'online'):
+    def train(self, data, num_epochs: int = 100):
         data = np.asarray(data).reshape(-1, self.dim)
         # initialize weights
         self.init_weights(data)
@@ -89,19 +94,35 @@ class MSOM(SOM):
         # initial context descriptor
         self.context_vector = np.zeros(self.dim)
 
+        self.bmu_trajectory = []
+        self.merged_inputs = []
+        self.q_error = []
+        self.avg_adjust_main = []
+        self.context_norms = []
+
         for epoch in range(num_epochs):
             perm = np.random.permutation(len(data))
             data_shuffled = data[perm]
             lr = self.lr_schedule(epoch, num_epochs)
             radius = self.radius_schedule(epoch, num_epochs)
 
-            if mode == 'online':
-                for x in data_shuffled:
-                    bmu = self.find_bmu(x)
-                    self.update_weights(x, bmu, lr, radius)
-                    self.update_context(bmu)
+            old_weights = self.weights.copy()
+            epoch_bmus = []
 
-            elif mode == 'batch':
-                pass
-            else:
-                raise ValueError(f"Unknown mode: {mode!r}")
+            for x in data_shuffled:
+                bmu = self.find_bmu(x)
+                epoch_bmus.append(bmu)
+
+                z_t = np.concatenate([x, self.context_vector])
+                self.merged_inputs.append(z_t)
+
+                self.update_weights(x, bmu, lr, radius)
+                self.update_context(bmu)
+                self.bmu_trajectory.append(bmu)
+
+            dists = [np.linalg.norm(x - self.weights[self.find_bmu(x)]) for x in data]
+            self.q_error.append(np.mean(dists))
+
+            delta_main = np.abs(self.weights - old_weights)
+            self.avg_adjust_main.append(np.mean(delta_main))
+            self.context_norms.append(np.linalg.norm(self.context_vector))

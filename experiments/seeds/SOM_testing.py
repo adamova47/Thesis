@@ -1,5 +1,12 @@
-from SOM import SOM
-from util import *
+import sys
+import os
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+sys.path.append(project_root)
+
+from src.models.SOM import SOM
+from src.models.SOM_cupy import SOM_cupy
+from src.models.utils import *
 from joblib import Parallel, delayed
 
 
