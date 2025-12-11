@@ -3,21 +3,6 @@ from .SOM_vectorized import SOM_vectorized
 DEFAULT_DTYPE = cp.float32
 
 class RSOM(SOM_vectorized):
-    """
-    RecSOM: Recurrent Self-Organizing Map
-    - two layers:
-      * weights W (shape m×n×dim)
-      * context weights (shape (m*n)×(m*n))
-    - context vector ct (shape m*n), representing context layer output
-    - distance mix: d = alpha * ||x - W_ij||^2 + beta * ||ct - C_ij||^2
-    - updateWeights:
-        W_ij += lr * gamma1 * h * (x - W_ij)
-        C_ij_vec += lr * gamma2 * h * (ct - C_ij_vec)
-    - update context after each input x:
-        for each neuron k: compute d_k = alpha||x-W_k||^2 + beta||ct - C_k||^2
-        ct = exp(-d)  (exponential activation)
-    """
-
     def __init__(self,
                  m: int,
                  n: int,
