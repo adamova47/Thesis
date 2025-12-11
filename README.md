@@ -14,7 +14,7 @@ represent temporal patterns.
 
 ## Materials
 - **Thesis (PDF):** [Recurrent_self-organizing_networks.pdf](./docs/Diplomova_Praca.pdf)
-- **Pre-defense presentation (PPTX):** [Prototyp_prez.pptx](./docs/Recurrent-Self-Organizing-Networks.pptx)
+- **Pre-defense presentation (PPTX):** [Recurrent-Self-Organizing-Networks.pptx](./docs/Recurrent-Self-Organizing-Networks.pptx)
 
 ## Source Code
 Repository containing:
