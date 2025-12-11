@@ -26,3 +26,9 @@ Repository containing:
 ## Datasets
 - Seeds dataset
 - Mackey–Glass time series
+
+Example visualization outputs: 
+[Class membership map](./results/Class_membership_map.png)
+[Quantization error vs epoch](./results/QE_vs_epoch.png)
+[U matrix](./results/U_matrix.png)
+[Attribute heatmaps](./results/Attribute_heatmaps.png)
