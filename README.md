@@ -13,8 +13,8 @@ represent temporal patterns.
 - Created pre-defense presentation and partial thesis chapters
 
 ## Materials
-- **Thesis draft (PDF):** [Recurrent_self-organizing_networks.pdf] (./Recurrent_self-organizing_networks.pdf)
-- **Pre-defense presentation (PDF):** [link]
+- **Thesis draft (PDF):** [Recurrent_self-organizing_networks.pdf] (./docs/Recurrent_self-organizing_networks.pdf)
+- **Pre-defense presentation (PDF):** [Prototyp_prez.pptx] (./docs/Prototyp_prez.pptx)
 
 ## Source Code
 Repository containing:
