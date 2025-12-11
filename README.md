@@ -1,10 +1,34 @@
-# Recurrent self-organising networks
+# Recurrent Self-Organizing Networks
 
-This repository contains the implementation of Recurrent Self-Organizing Maps (RSOM) and Merge Self-Organizing Maps (MSOM) in Python. The goal of this project is to implement, test, and visualize these algorithms, focusing on sequence learning, sequence reconstruction, and continuous learning to address catastrophic forgetting.
+## Overview
+This project focuses on SOM, RSOM, and MSOM models and their use in temporal sequence learning.
+The goal is to implement these models in Python, debug their behavior, and test their ability to
+represent temporal patterns.
 
-The repository includes:
-- Source code for SOM, RSOM and MSOM implementations
-- Experiment logs and results
-- Project timeline and task calendar
+## Current Progress
+- Implemented SOM, RSOM, MSOM in Python
+- Added GPU-accelerated vectorized versions
+- Implemented visualization tools (U-matrix, BMU maps, context evolution)
+- Performed hyperparameter searches for all models
+- Created pre-defense presentation and partial thesis chapters
 
-This project is conducted as part of the MSc thesis in Applied Informatics at Comenius University in Bratislava.
+## Materials
+- **Thesis (PDF):** [Recurrent_self-organizing_networks.pdf](./docs/Recurrent_self-organizing_networks.pdf)
+- **Pre-defense presentation (PPTX):** [Prototyp_prez.pptx](./docs/Prototyp_prez.pptx)
+
+## Source Code
+Repository containing:
+- `SOM.py`, `SOM_vectorized.py`
+- `RSOM.py`, `RSOM_cp_vectorized.py`
+- `MSOM.py`
+- testing scripts for SOM, RSOM, MSOM
+
+## Datasets
+- Seeds dataset
+- Mackey–Glass time series
+
+Example visualization outputs: 
+![Class membership map](./results/Class_memebership_map.png)
+![Quantization error vs epoch](./results/QE_vs_epoch.png)
+![U matrix](./results/U_matrix.png)
+![Attribute heatmaps](./results/Attribute_heatmaps.png)
