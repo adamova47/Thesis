@@ -1,4 +1,5 @@
 import numpy as np
+import cupy as cp
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 
@@ -28,19 +29,18 @@ def smart_normalize(data):
 
 
 def plot_quantization_error(som):
-    if hasattr(som.q_error[0], 'get'):
-        q_errors = [err.get() for err in som.q_error]
+    if hasattr(som.q_error_history[0], "get"):
+        q_errors = [err.get() for err in som.q_error_history]
     else:
-        q_errors = som.q_error
-    
+        q_errors = som.q_error_history
+
     epochs = range(1, len(q_errors) + 1)
     plt.figure()
-    plt.plot(epochs, q_errors, linestyle='-', linewidth=1.5)
-    plt.xlabel('Epoch')
-    plt.ylabel('Quantization error')
-    plt.title('QE vs. epoch')
+    plt.plot(epochs, q_errors, linewidth=1.5)
+    plt.xlabel("Epoch")
+    plt.ylabel("Quantization error")
+    plt.title("QE vs. epoch")
     plt.grid(alpha=0.4)
-
 
 
 def plot_avg_adjustment(som):
@@ -58,7 +58,9 @@ def plot_avg_adjustment(som):
     plt.grid(alpha=0.4)
 
 def plot_context_norms(rsom):
-    plt.plot(rsom.context_norms, linestyle='-', linewidth=1.5)
+    vals = rsom.context_norms
+    vals = vals.get() if hasattr(vals, "get") else vals
+    plt.plot(vals, linestyle='-', linewidth=1.5)
     plt.xlabel('Epoch')
     plt.ylabel('|Context vector|')
     plt.title('Context vector norm vs. epoch')
@@ -67,23 +69,16 @@ def plot_context_norms(rsom):
 def plot_winner_map(som, X, y):
     m, n = som.m, som.n
     num_classes = len(np.unique(y))
+
+    X_cp = X if hasattr(X, "device") else cp.asarray(X)
+
     class_counts = np.zeros((m, n, num_classes))
 
-    if som.use_cupy:
-        X_converted = som.xp.asarray(X)  # Convert to CuPy if using GPU
-    else:
-        X_converted = X
-
-    for i in range(len(X)):
-        sample = X_converted[i]  # Use original NumPy array
-        label = y[i]
-        bmu = som.find_bmu(sample)
-        
-        # Extract values from CuPy/Numpy objects
-        bmu_i = int(bmu[0].get() if hasattr(bmu[0], 'get') else bmu[0])
-        bmu_j = int(bmu[1].get() if hasattr(bmu[1], 'get') else bmu[1])
-        
-        class_counts[bmu_i, bmu_j, label - 1] += 1
+    for i in range(len(X_cp)):
+        bi, bj = som.find_bmu(X_cp[i])
+        bi = int(bi.get())
+        bj = int(bj.get())
+        class_counts[bi, bj, y[i]-1] += 1
 
     dominant_class = np.argmax(class_counts, axis=2) + 1
     class_sums = class_counts.sum(axis=2)
@@ -118,6 +113,7 @@ def plot_feature_heatmaps(som):
     for k in range(som.dim):
         ax = axs.flat[k]
         mat = som.weights[..., k]
+        mat = mat.get() if hasattr(mat, "get") else mat
         im = ax.imshow(mat, origin='lower')
         ax.set_title(f'Attr {k+1}')
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -141,14 +137,16 @@ def compute_u_matrix(weights):
 
 
 def plot_u_matrix(som):
-    U = compute_u_matrix(som.weights)
+    U = compute_u_matrix(som.weights.get() if hasattr(som.weights, "get") else som.weights)
     plt.figure(figsize=(6,6))
     plt.imshow(U, cmap='viridis', origin='lower')
     plt.colorbar(label='Avg. neighbor dist.')
     plt.title('U-matrix')
 
 def plot_trajectory_map(xsom):
-    coords = np.array(xsom.bmu_trajectory)
+    coords = np.array([
+        (int(i), int(j)) for (i, j) in xsom.bmu_trajectory
+    ])
     plt.figure(figsize=(6,6))
     plt.imshow(np.zeros((xsom.m, xsom.n)), cmap='gray_r', origin='lower')
     plt.plot(coords[:,1], coords[:,0], '-o', color='red', alpha=0.7)
@@ -159,7 +157,7 @@ def plot_trajectory_map(xsom):
     plt.show()
 
 def plot_recursive_state_evolution(rsom, n_neurons_to_plot=5):
-    ctx = np.array(rsom.context_history)
+    ctx = np.array(rsom.context_history.get())
     plt.figure(figsize=(10,4))
     for i in range(min(n_neurons_to_plot, ctx.shape[1])):
         plt.plot(ctx[:, i], label=f'Neuron {i}')
@@ -171,7 +169,7 @@ def plot_recursive_state_evolution(rsom, n_neurons_to_plot=5):
     plt.show()
 
 def plot_temporal_similarity(rsom):
-    ctx = np.array(rsom.context_history)
+    ctx = np.array(rsom.context_history.get() if hasattr(rsom.context_history, "get") else rsom.context_history)
     sim = np.corrcoef(ctx)
     plt.figure(figsize=(6,6))
     plt.imshow(sim, cmap='coolwarm', origin='lower')
@@ -184,7 +182,7 @@ def plot_temporal_similarity(rsom):
 
 def plot_context_norms(xsom):
     plt.figure()
-    plt.plot(xsom.context_norms)
+    plt.plot(xsom.context_norms.get() if hasattr(xsom.context_norms, "get") else xsom.context_norms, linestyle='-', linewidth=1.5)
     plt.xlabel("Epoch")
     plt.ylabel("‖Context Vector‖")
     plt.title("Context Magnitude Over Training")
@@ -193,7 +191,7 @@ def plot_context_norms(xsom):
 
 def plot_merged_input_evolution(msom, dim=0):
     """Plot how one merged feature evolves over time."""
-    z = np.array(msom.merged_inputs)
+    z = np.array(msom.merged_inputs.get() if hasattr(msom.merged_inputs, "get") else msom.merged_inputs)
     half = z.shape[1] // 2
     input_part = z[:, :half]
     context_part = z[:, half:]
@@ -206,7 +204,7 @@ def plot_merged_input_evolution(msom, dim=0):
     plt.show()
 
 def plot_recurrence(msom):
-    coords = np.array(msom.bmu_trajectory)
+    coords = np.array(msom.bmu_trajectory.get() if hasattr(msom.bmu_trajectory, "get") else msom.bmu_trajectory)
     dists = np.sqrt(np.sum((coords[:,None,:] - coords[None,:,:])**2, axis=2))
     sim = np.exp(-dists)
     plt.figure(figsize=(6,6))

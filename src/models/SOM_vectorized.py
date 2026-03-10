@@ -1,8 +1,16 @@
 import cupy as cp
 
+
+"""
+CuPy gives NumPy-like arrays but on the GPU.
+float32 is usually the sweet spot for the GPU performance.
+If the data is float64 or comes from NumPy, CuPy will convert it, but
+mixing types can hurt performance and cause slight precision differences.
+"""
 DEFAULT_DTYPE = cp.float32
 
 class SOM_vectorized:
+
     def __init__(self, m: int, n: int, dim: int, 
                  weight_init_method: str = "uniform",
                  grid_metric: str = "euclid",
@@ -11,9 +19,11 @@ class SOM_vectorized:
                  radius_schedule: callable = None,
                  seed=None):
 
+        # Seeding ensures reproducibility within CuPy.
         if seed is not None:
             cp.random.seed(seed)
 
+        # Basic sanity guard for dimensions.
         if m <= 0 or n <= 0 or dim <= 0:
             raise ValueError("SOM dimensions must be positive integers")
         
@@ -26,26 +36,52 @@ class SOM_vectorized:
         self.grid_metric = grid_metric
         self.neighborhood_kernel = neighborhood_kernel
 
+        # learning rate and radius lineary decay by default, but can be customized with a function of (current_epoch, total_epochs)
         self.lr_schedule = lr_schedule or (lambda t, T: 0.1 * (1 - t / T))
         self.radius_schedule = radius_schedule or (lambda t, T: max(m, n) / 2 * (1 - t / T))
 
+        # we track quantization error and average adjustment for monitoring convergence
         self.q_error_history = []
         self.avg_adjust_history = []
 
+        # precompute grid coordinates for efficient distance calculations during training
+        # you avoid recomputing grid indices constantly
         self._precompute_grid_coords()
 
 
     def init_weights(self, data):
+        """
+        This controls what the SOM starts as, which can affect convergence speed and final quality.
+        """
         if self.weight_init_method == "uniform":
-            self.weights = cp.random.rand(self.m, self.n, self.dim)
+            """
+            This samples in [0, 1].
+            The assumption is that the data is normalized or roughly in [0,1].
+            If not the  SOM eventually learns but it can take longer or behave weirdly early on.
+            """
+            self.weights = cp.random.rand(self.m, self.n, self.dim).astype(DEFAULT_DTYPE)
         elif self.weight_init_method == "data_range":
+            """
+            This samples uniformly within the bounding box of the data.
+            Which ensures the initial weights are in a reasonable range relative to the data.
+            """
             lo = data.min(axis=0)
             hi = data.max(axis=0)
             w = (hi - lo) * cp.random.rand(self.m, self.n, self.dim) + lo
+            self.weights = w.astype(DEFAULT_DTYPE)
         elif self.weight_init_method == "sample":
+            """
+            Initialize each neuron as a random data point.
+            Its good because the weights start at the  data manifold and often converge faster than uniform for example.
+            The Replace = True might reduce diversity though, but it ensures it works even if you have fewer data points than neurons.
+            """
             indices = cp.random.choice(data.shape[0], size=self.m * self.n, replace=True)
             self.weights = data[indices].reshape(self.m, self.n, self.dim)
         elif self.weight_init_method == "pca":
+            """
+            You lay your grid on the first 2 principal components of the data.
+            It often makes training smoother and faster but only makes sense if dim is not tiny and the PCA structure matters.
+            """
             from sklearn.decomposition import PCA
             data_np = cp.asnumpy(data)
             pca = PCA(n_components=2).fit(data_np)
@@ -68,11 +104,19 @@ class SOM_vectorized:
             self.weights = cp.asarray(centers, dtype=DEFAULT_DTYPE)
 
     def _precompute_grid_coords(self):
-        """Precompute grid coordinates for efficient distance calculation"""
+        """
+        This creates 2 arrays of shape (m, n) that contain the i and j indices of the grid.
+            - self.i_coords[i, j] = i
+            - self.j_coords[i, j] = j
+        Which allows us to compute distances from the BMU to all neurons in a vectorized way during training, without needing to recompute the grid indices each time.
+        """
         self.i_coords, self.j_coords = cp.mgrid[0:self.m, 0:self.n]
 
     def find_bmu(self, x):
-        """Most efficient BMU finding using einsum or manual computation"""
+        """
+        Most efficient BMU finding using einsum or manual computation.
+        For each neuron, compute squared Euclidean distance then pick the neuron with the smallest distance.
+        """
         # Method 1: Using einsum (very efficient, works with CuPy)
         diff = self.weights - x  # Broadcasting: (m, n, dim) - (dim,) → (m, n, dim)
         dists_sq = cp.einsum('ijk,ijk->ij', diff, diff)  # Sum of squares
@@ -86,6 +130,14 @@ class SOM_vectorized:
         # return (min_index // self.n, min_index % self.n)
 
     def grid_distance(self, i0, j0):
+        """
+        Distance between neurons in grid coordinate space.
+            - For Euclidean, it's the straight line distance.
+            - For Manhattan, it's the sum of absolute differences.
+            - For Chebyshev, it's the maximum absolute difference.
+            - For Toroidal, it wraps around the edges of the grid.
+        We compute the distance from the BMU (i0, j0) to all neurons in the grid at once using the precomputed coordinates.
+        """
         if self.grid_metric == "euclid":
             return cp.sqrt((self.i_coords - i0)**2 + (self.j_coords - j0)**2)
         elif self.grid_metric == "manhattan":
@@ -98,6 +150,7 @@ class SOM_vectorized:
             return cp.sqrt(di**2 + dj**2)
 
     def compute_neighborhood(self, dists, radius):
+        # How influence decays with grid distance.
         if self.neighborhood_kernel  == "gaussian":
             return cp.exp(-(dists**2) / (2 * radius**2))
         elif self.neighborhood_kernel  == "bubble":
@@ -140,8 +193,9 @@ class SOM_vectorized:
             total_q_error = 0.0
             for x in data_epoch:
                 bmu = self.find_bmu(x)
+                w_bmu = self.weights[bmu].copy()
+                total_q_error += cp.linalg.norm(x - w_bmu)
                 self.update_weights(x, bmu, lr, radius)
-                total_q_error += cp.linalg.norm(x - self.weights[bmu])
 
             self.q_error_history.append(total_q_error / len(data_epoch))
             delta = self.weights - old_weights

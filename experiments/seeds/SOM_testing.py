@@ -1,52 +1,72 @@
+import pickle
+import cupy as cp
+from joblib import Parallel, delayed
 import sys
 import os
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(project_root)
 
-from src.models.SOM import SOM
-from src.models.SOM_cupy import SOM_cupy
+from src.models.SOM_vectorized import SOM_vectorized as SOM
 from src.models.utils import *
-from joblib import Parallel, delayed
 
 
 def run_config(params):
     m, n, init_method, grid_metric, kernel, x, y, epochs = params
+
     som = SOM(
-        m,
-        n,
+        m, n,
         dim=x.shape[1],
         weight_init_method=init_method,
         grid_metric=grid_metric,
         neighborhood_kernel=kernel,
         seed=42,
     )
+
     som.train(x, num_epochs=epochs)
-    q = som.q_error_history[-1]
+    qe = float(som.q_error_history[-1].get())
+
+    hits = cp.zeros((m, n), dtype=cp.int32)
+
+    for xi in x:
+        bi, bj = som.find_bmu(xi)
+        hits[bi, bj] += 1
+
+    dead_neurons = int(cp.sum(hits == 0).get())
+
+    p = hits / cp.sum(hits)
+    p = p[p > 0]
+    entropy = float((-cp.sum(p * cp.log(p))).get())
+
     return {
         "m": m,
         "n": n,
         "init": init_method,
         "metric": grid_metric,
         "kernel": kernel,
-        "q": q,
+        "epochs": epochs,
+        "qe": qe,
+        "entropy": entropy,
+        "dead_neurons": dead_neurons,
         "som": som,
     }
 
 
 def main():
     # load data
-    data = np.loadtxt("seeds.txt")
-    x = data[:, :-1]
+    here = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(here, "seeds.txt")
+    data = np.loadtxt(data_path)
+    x = cp.asarray(data[:, :-1])
     y = data[:, -1].astype(int)
 
     # generate map dimensions - number of neurons between 80 and 150
-    dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m * n <= 150]
+    dims = [(12,12)]
 
     # other hyperparameters
-    inits = ["uniform", "data_range", "sample", "sample", "pca", "kmeans"]
-    metrics = ["euclid", "manhattan", "chebyshev", "cosine", "toroidal"]
-    kernels = ["gaussian", "bubble", "epanechnikov", "triangular", "inverse"]
+    inits = ["data_range"]
+    metrics = ["euclid"]
+    kernels = ["gaussian"]
     epochs = 150
 
     configs = [
@@ -57,13 +77,14 @@ def main():
         for kernel in kernels
     ]
 
-    results = Parallel(n_jobs=-1)(delayed(run_config)(cfg) for cfg in configs)
+    results = Parallel(n_jobs=2)(delayed(run_config)(cfg) for cfg in configs)
 
-    best = min(results, key=lambda r: r["q"])
+    best = min(results, key=lambda r: r["qe"])
     best_som = best["som"]
     print(
         f"Best config: m={best['m']}, n={best['n']}, init={best['init']},"
-        f" metric={best['metric']}, kernel={best['kernel']}, QE={best['q']}"
+        f" metric={best['metric']}, kernel={best['kernel']}, QE={best['qe']},"
+        f" Entropy={best['entropy']}, Dead neurons={best['dead_neurons']}"
     )
 
     plot_quantization_error(best_som)
