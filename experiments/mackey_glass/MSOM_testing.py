@@ -81,6 +81,7 @@ def run_config(params):
     return {
         "m": m,
         "n": n,
+        "epochs": epochs,
         "init": init,
         "metric": metric,
         "kernel": kernel,
@@ -101,14 +102,14 @@ def main():
 
     # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
     dims = [(10, 10)]
-    inits = ["sample"]
-    metrics = ["euclid"]
-    kernels = ["gaussian"]
+    inits = ["data_range"]
+    metrics = ["euclid", "chebyshev", "toroidal"]
+    kernels = ["bubble", "triangular"]
 
-    alphas = [1.0, 0.5, 0.2]
-    betas = [0.1, 0.3, 0.5]
+    alphas = [1.0, 0.5, 0.1]
+    betas = [0.1, 0.3, 0.5, 0.65, 0.8]
 
-    epochs = 100
+    epochs = 150
 
     results_file = os.path.join(os.path.dirname(__file__), "msom_results.pkl")
 
@@ -140,7 +141,11 @@ def main():
     # update or overwrite only the configs from this run
     for result in results:
         key = make_result_key(result)
-        all_results[key] = result
+        all_results[key] = {
+            "qe": result["qe"],
+            "entropy": result["entropy"],
+            "dead_neurons": result["dead_neurons"],
+        }
 
     # save at the end
     pickle_dump(all_results, results_file)

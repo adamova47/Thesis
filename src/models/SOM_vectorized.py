@@ -85,17 +85,18 @@ class SOM_vectorized:
             from sklearn.decomposition import PCA
             data_np = cp.asnumpy(data)
             pca = PCA(n_components=2).fit(data_np)
-            coords = cp.indices((self.m, self.n)).transpose(1, 2, 0).astype(float)
+            pca_components = cp.asarray(pca.components_, dtype=DEFAULT_DTYPE)
+            pca_mean = cp.asarray(pca.mean_, dtype=DEFAULT_DTYPE)
+            pca_var = cp.asarray(pca.explained_variance_, dtype=DEFAULT_DTYPE)
+            coords = cp.indices((self.m, self.n)).transpose(1, 2, 0).astype(DEFAULT_DTYPE)
             coords[..., 0] /= max(1, self.m - 1)
             coords[..., 1] /= max(1, self.n - 1)
             if self.m > 1 and self.n > 1:
-                coords[..., 0] = coords[..., 0] * (pca.explained_variance_[0] * 2) - pca.explained_variance_[0]
-                coords[..., 1] = coords[..., 1] * (pca.explained_variance_[1] * 2) - pca.explained_variance_[1]
+                coords[..., 0] = coords[..., 0] * (2 * pca_var[0]) - pca_var[0]
+                coords[..., 1] = coords[..., 1] * (2 * pca_var[1]) - pca_var[1]
             pc_grid = coords.reshape(-1, 2)
-            weights = pc_grid @ pca.components_
-            weights += pca.mean_
-            weights = weights.reshape(self.m, self.n, self.dim)
-            self.weights = cp.asarray(weights, dtype=DEFAULT_DTYPE)
+            weights = (pc_grid @ pca_components) + pca_mean
+            self.weights = weights.reshape(self.m, self.n, self.dim)
         elif self.weight_init_method == "kmeans":
             from sklearn.cluster import KMeans
             data_np = cp.asnumpy(data)
