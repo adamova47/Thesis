@@ -42,6 +42,19 @@ def plot_quantization_error(som):
     plt.title("QE vs. epoch")
     plt.grid(alpha=0.4)
 
+def plot_temporal_quantization_error(xsom):
+    if hasattr(xsom.temporal_q_error_history[0], "get"):
+        q_errors = [err.get() for err in xsom.q_error_history]
+    else:
+        q_errors = xsom.q_error_history
+
+    epochs = range(1, len(q_errors) + 1)
+    plt.figure()
+    plt.plot(epochs, q_errors, linewidth=1.5)
+    plt.xlabel("Epoch")
+    plt.ylabel("Temporal quantization error")
+    plt.title("TQE vs. epoch")
+    plt.grid(alpha=0.4)
 
 def plot_avg_adjustment(som):
     if hasattr(som.avg_adjust_history[0], 'get'):

@@ -4,12 +4,44 @@ from joblib import Parallel, delayed
 import pandas as pd
 import sys
 import os
+from pathlib import Path
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(project_root)
 
 from src.models.RSOM_cp_vectorized import RSOM
 from src.models.utils import *
+
+
+def make_result_key(result):
+    return (
+        result["m"],
+        result["n"],
+        result["init"],
+        result["metric"],
+        result["kernel"],
+        result["alpha"],
+        result["beta"],
+        result["epochs"],
+    )
+
+def pickle_dump(obj, filepath):
+    filepath = Path(filepath)
+    tmp_path = filepath.with_suffix(filepath.suffix + ".tmp")
+
+    with open(tmp_path, "wb") as f:
+        pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    os.replace(tmp_path, filepath)
+
+
+def load_results_dict(filepath):
+    filepath = Path(filepath)
+    if not filepath.exists():
+        return {}
+
+    with open(filepath, "rb") as f:
+        return pickle.load(f)
 
 
 def run_config(params):
@@ -29,10 +61,13 @@ def run_config(params):
     qe = rsom.q_error_history[-1]
 
     hits = cp.zeros((m, n), dtype=cp.int32)
+    Q = rsom.m * rsom.n
+    rsom.context_vector = cp.zeros(Q, dtype=rsom.weights.dtype)
 
     for xi in cp.asarray(x):
-        _, _, bmu = rsom._compute_energy_and_activity(xi)
+        _, y, bmu = rsom._compute_energy_and_activity(xi)
         hits[bmu] += 1
+        rsom.context_vector = y
 
     hits = hits.get()
 
@@ -45,6 +80,7 @@ def run_config(params):
     return {
         "m": m,
         "n": n,
+        "epochs": epochs,
         "init": init,
         "metric": metric,
         "kernel": kernel,
@@ -60,19 +96,21 @@ def run_config(params):
 def main():
     df = pd.read_excel(os.path.join(os.path.dirname(__file__), "mackey_glass.xlsx"))
     x = df[["t", "t-taw"]].values
-    x = cp.asarray(smart_normalize(x))
+    x = cp.asarray(smart_normalize(x), dtype=cp.float32)
     y = df["t+1"].values.reshape(-1, 1)
 
     # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
     dims = [(10, 10)]
-    inits = ["sample"]
+    inits = ["data_range"]
     metrics = ["euclid"]
     kernels = ["gaussian"]
 
-    alphas = [1.0, 0.5, 0.2]
-    betas = [0.0, 0.1, 0.3, 0.5]
+    alphas = [0.8, 0.75, 0.7, 0.65, 0.6]
+    betas = [0.1, 0.33, 0.4, 0.5, 0.7, 0.84]
 
-    epochs = 100
+    epochs = 150
+
+    results_file = os.path.join(os.path.dirname(__file__), "rsom_results.pkl")
 
     configs = [
         (m, n, init, metric, kernel, a, b, x, y, epochs)
@@ -96,8 +134,24 @@ def main():
         f"metric={best['metric']}, kernel={best['kernel']}, "
         f"alpha={best['alpha']}, beta={best['beta']}, "
         f"QE={best['qe']}, Entropy={best['entropy']}, Dead neurons={best['dead_neurons']}")
+    
+    # load the old big dictionary if it exists
+    all_results = load_results_dict(results_file)
+
+    # update or overwrite only the configs from this run
+    for result in results:
+        key = make_result_key(result)
+        all_results[key] = {
+            "qe": result["qe"],
+            "entropy": result["entropy"],
+            "dead_neurons": result["dead_neurons"],
+        }
+
+    # save at the end
+    pickle_dump(all_results, results_file)
 
     plot_quantization_error(best_rsom)
+    plot_temporal_quantization_error(best_rsom)
     plot_trajectory_map(best_rsom)
     # plot_recursive_state_evolution(best_rsom, 100)
     # plot_temporal_similarity(best_rsom)

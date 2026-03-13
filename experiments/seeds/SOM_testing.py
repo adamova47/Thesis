@@ -3,12 +3,42 @@ import cupy as cp
 from joblib import Parallel, delayed
 import sys
 import os
+from pathlib import Path
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(project_root)
 
 from src.models.SOM_vectorized import SOM_vectorized as SOM
 from src.models.utils import *
+
+
+def make_result_key(result):
+    return (
+        result["m"],
+        result["n"],
+        result["init"],
+        result["metric"],
+        result["kernel"],
+        result["epochs"],
+    )
+
+def pickle_dump(obj, filepath):
+    filepath = Path(filepath)
+    tmp_path = filepath.with_suffix(filepath.suffix + ".tmp")
+
+    with open(tmp_path, "wb") as f:
+        pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    os.replace(tmp_path, filepath)
+
+
+def load_results_dict(filepath):
+    filepath = Path(filepath)
+    if not filepath.exists():
+        return {}
+
+    with open(filepath, "rb") as f:
+        return pickle.load(f)
 
 
 def run_config(params):
@@ -41,6 +71,7 @@ def run_config(params):
     return {
         "m": m,
         "n": n,
+        "epochs" : epochs,
         "init": init_method,
         "metric": grid_metric,
         "kernel": kernel,
@@ -61,13 +92,15 @@ def main():
     y = data[:, -1].astype(int)
 
     # generate map dimensions - number of neurons between 80 and 150
-    dims = [(12,12)]
+    dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
 
     # other hyperparameters
-    inits = ["data_range"]
-    metrics = ["euclid"]
-    kernels = ["gaussian"]
+    inits = ["uniform", "data_range", "sample", "pca", "kmeans"]
+    metrics = ["euclid", "manhattan", "chebyshev", "toroidal"]
+    kernels = ["gaussian", "bubble", "epanechnikov", "triangular", "inverse"]
     epochs = 150
+
+    results_file = os.path.join(os.path.dirname(__file__), "som_results.pkl")
 
     configs = [
         (m, n, init_method, grid_metric, kernel, x, y, epochs)
@@ -77,7 +110,7 @@ def main():
         for kernel in kernels
     ]
 
-    results = Parallel(n_jobs=2)(delayed(run_config)(cfg) for cfg in configs)
+    results = Parallel(n_jobs=3)(delayed(run_config)(cfg) for cfg in configs)
 
     best = min(results, key=lambda r: r["qe"])
     best_som = best["som"]
@@ -86,6 +119,21 @@ def main():
         f" metric={best['metric']}, kernel={best['kernel']}, QE={best['qe']},"
         f" Entropy={best['entropy']}, Dead neurons={best['dead_neurons']}"
     )
+
+    # load the old big dictionary if it exists
+    all_results = load_results_dict(results_file)
+
+    # update or overwrite only the configs from this run
+    for result in results:
+        key = make_result_key(result)
+        all_results[key] = {
+            "qe": result["qe"],
+            "entropy": result["entropy"],
+            "dead_neurons": result["dead_neurons"],
+        }
+
+    # save at the end
+    pickle_dump(all_results, results_file)
 
     plot_quantization_error(best_som)
     plot_avg_adjustment(best_som)

@@ -45,43 +45,36 @@ class RSOM(SOM_vectorized):
         self.context_norms = []
         self.bmu_trajectory = []
         self.context_history = []
+        self.temporal_q_error_history = []
 
     def _compute_energy_and_activity(self, x):
         """
         Compute:
             d_i(t) = alpha * ||x - w_i||^2
                 + beta  * ||y(t-1) - c_i||^2
-
         Then:
             y_i(t) = exp(-d_i(t))
-
         Returns:
             d_i   : (Q,) energy values
             y     : (Q,) activity vector
             bmu   : (i, j) grid coordinates
         """
         Q = self.m * self.n
-
         # Flatten input weights
         W_flat = self.weights.reshape(Q, self.dim)  # (Q, dim)
-
         # Input distance
         diff_input = W_flat - x[None, :]  # (Q, dim)
         d_input = cp.sum(diff_input ** 2, axis=1)  # (Q,)
-
         # Context distance
         diff_context = self.context_weights - self.context_vector[None, :]  # (Q, Q)
         d_context = cp.sum(diff_context ** 2, axis=1)  # (Q,)
-        
         """y = self.context_vector
         y_norm = cp.sum(y.astype(cp.float64) ** 2)
         c_norm = cp.sum(self.context_weights.astype(cp.float64) ** 2, axis=1)
         dot = (self.context_weights.astype(cp.float64) @ y.astype(cp.float64))
         d_context = (c_norm + y_norm - 2 * dot).astype(cp.float32)"""
-        
         # Combined energy
         d_comb = self.alpha * d_input + self.beta * d_context  # (Q,)
-
         # Activity vector (Voegtlin)
         """
         You can do: y = cp.exp(-d_i - cp.max(d_i))
@@ -89,11 +82,9 @@ class RSOM(SOM_vectorized):
         which might affect learning dynamics. You can experiment with both versions.
         """
         y = cp.exp(-d_comb)  # (Q,)
-
         # Find BMU
         bmu_index = cp.argmin(d_comb)
         bmu = cp.unravel_index(bmu_index, (self.m, self.n))
-
         return d_comb, y, bmu
 
     def update_weights(self, x, bmu, lr, radius):
@@ -104,19 +95,15 @@ class RSOM(SOM_vectorized):
         """
         i0, j0 = bmu
         y_prev = self.context_vector  # (Q,)
-
         # Compute neighborhood function
         dists = self.grid_distance(i0, j0)  # (m, n)
         h = self.compute_neighborhood(dists, radius)  # (m, n)
         h = h.astype(self.weights.dtype)
-
         # Update input weights (m, n, dim)
         self.weights += lr * h[:, :, None] * (x - self.weights)  # (m, n, dim)
-        
         # Update recurrent/context weights (Q, Q)
         Q = self.m * self.n
         h_flat = h.reshape(Q).astype(self.context_weights.dtype)  # (Q,)
-
         # Each row i of context_weights gets scaled by h_flat[i] and multiplied by y_prev
         self.context_weights += lr * (h_flat[:, None] * (y_prev - self.context_weights))  # (Q, Q)
 
@@ -132,41 +119,72 @@ class RSOM(SOM_vectorized):
         self.context_weights = 0.01 * cp.random.randn(Q, Q, dtype=dtype)
         """
         self.context_weights = cp.random.rand(Q, Q, dtype=dtype)
-        self.context_vector = cp.zeros(Q, dtype=dtype)
+        self.context_vector = 0.01 * cp.zeros(Q, dtype=dtype)
 
         self.q_error_history = []
-        self.avg_adjust_main = []
-        self.avg_adjust_context = []
-        self.context_norms = []
+        self.temporal_q_error_history = []
+        # self.avg_adjust_main = []
+        # self.avg_adjust_context = []
+        # self.context_norms = []
         self.bmu_trajectory = []
-        self.context_history = []
+        # self.context_history = []
 
         for epoch in range(num_epochs):
             lr = self.lr_schedule(epoch, num_epochs)
             radius = self.radius_schedule(epoch, num_epochs)
 
-            old_main_weights = self.weights.copy()
-            old_context_weights = self.context_weights.copy()
+            # old_main_weights = self.weights.copy()
+            # old_context_weights = self.context_weights.copy()
 
             for x in data:
                 d_comb, y, bmu = self._compute_energy_and_activity(x)
                 self.update_weights(x, bmu, lr, radius)
                 self.context_vector = y  # Update global context to current activity
 
-                self.context_history.append(self.context_vector.copy())
                 if epoch == num_epochs - 1:
                     self.bmu_trajectory.append(bmu)
+                    # self.context_history.append(self.context_vector.copy())
             
-            # QE computation vectorized
-            W_flat = self.weights.reshape(self.m * self.n, self.dim)
-            diff = data[:, None, :] - W_flat[None, :, :]
-            dists = cp.sum(diff**2, axis=2)
-            bmu_dist = cp.min(dists, axis=1)
-            self.q_error_history.append(cp.mean(cp.sqrt(bmu_dist)))
+            if epoch % 5 == 0 or epoch == num_epochs - 1:
+                # Static + temporal QE computation
+                old_context_vector = self.context_vector.copy()
+                """
+                We copy old context here to still have persistent sequence state across epochs. If its ok to reset context 
+                each epoch you can just do self.context_vector = cp.zeros(Q, dtype=dtype) and not save the previous.
+                """
+                self.context_vector = cp.zeros(Q, dtype=dtype)
 
+                static_err = 0.0
+                temporal_err = 0.0
+
+                for x in data:
+                    d_comb, y, bmu = self._compute_energy_and_activity(x)
+
+                    # input-only error
+                    w_bmu = self.weights[bmu]
+                    static_err += cp.linalg.norm(x - w_bmu)
+
+                    # temporal error
+                    bmu_idx = bmu[0] * self.n + bmu[1]
+                    temporal_err += cp.sqrt(d_comb[bmu_idx])
+
+                    # advance recurrent state during evaluation
+                    self.context_vector = y
+
+                static_qe = static_err / len(data)
+                temporal_qe = temporal_err / len(data)
+
+                self.q_error_history.append(float(static_qe))
+                self.temporal_q_error_history.append(float(temporal_qe))
+
+                # restore training context state
+                self.context_vector = old_context_vector
+
+            """
             delta_main = cp.abs(self.weights - old_main_weights)
             self.avg_adjust_main.append(cp.mean(delta_main))
             delta_context = cp.abs(self.context_weights - old_context_weights)
             self.avg_adjust_context.append(cp.mean(delta_context))
 
             self.context_norms.append(cp.linalg.norm(self.context_vector))
+            """
