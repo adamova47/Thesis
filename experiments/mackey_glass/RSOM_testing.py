@@ -156,6 +156,7 @@ def main():
     # plot_recursive_state_evolution(best_rsom, 100)
     # plot_temporal_similarity(best_rsom)
     # plot_context_norms(best_rsom)
+    plt.show()
 
 
 

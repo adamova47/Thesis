@@ -97,7 +97,7 @@ def run_config(params):
 def main():
     df = pd.read_excel(os.path.join(os.path.dirname(__file__), "mackey_glass.xlsx"))
     x = df[["t", "t-taw"]].values
-    x = cp.asarray(smart_normalize(x))
+    x = cp.asarray(smart_normalize(x), dtype=cp.float32)
     y = df["t+1"].values.reshape(-1, 1)
 
     # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
@@ -151,6 +151,7 @@ def main():
     pickle_dump(all_results, results_file)
 
     plot_quantization_error(best_rsom)
+    plot_temporal_quantization_error(best_rsom)
     plot_trajectory_map(best_rsom)
     # plot_recursive_state_evolution(best_rsom, 100)
     # plot_temporal_similarity(best_rsom)

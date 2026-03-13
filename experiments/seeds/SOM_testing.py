@@ -75,7 +75,6 @@ def run_config(params):
         "init": init_method,
         "metric": grid_metric,
         "kernel": kernel,
-        "epochs": epochs,
         "qe": qe,
         "entropy": entropy,
         "dead_neurons": dead_neurons,

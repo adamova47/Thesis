@@ -35,6 +35,7 @@ class MSOM(SOM_vectorized):
         self.avg_adjust_context = []
         self.bmu_trajectory = []
         self.context_descriptor_history = []
+        self.temporal_q_error_history = []
 
     def _init_context_weights(self):
         dtype = self.weights.dtype
@@ -96,28 +97,26 @@ class MSOM(SOM_vectorized):
         prev_bmu = None
 
         self.q_error_history = []
-        self.avg_adjust_main = []
-        self.avg_adjust_context = []
+        # self.avg_adjust_main = []
+        # self.avg_adjust_context = []
         self.bmu_trajectory = []
-        self.context_descriptor_history = []
+        # self.context_descriptor_history = []
 
         for epoch in range(num_epochs):
             lr = self.lr_schedule(epoch, num_epochs)
             radius = self.radius_schedule(epoch, num_epochs)
 
-            old_w = self.weights.copy()
-            old_c = self.context_weights.copy()
+            # old_w = self.weights.copy()
+            # old_c = self.context_weights.copy()
 
             if reset_context_each_epoch:
                 prev_bmu = None
 
-            total_q_error = 0.0
-
+            
+            # training pass
             for x in training_data:
                 C_t = self._compute_context_descriptor(prev_bmu)
                 bmu = self.find_bmu(x, C_t)
-
-                total_q_error += cp.linalg.norm(x - self.weights[bmu])
 
                 self.update_weights(x, C_t, bmu, lr, radius)
 
@@ -125,9 +124,36 @@ class MSOM(SOM_vectorized):
 
                 if epoch == num_epochs - 1:
                     self.bmu_trajectory.append(bmu)
-                self.context_descriptor_history.append(C_t.copy())
+                    # self.context_descriptor_history.append(C_t.copy())
 
-            self.q_error_history.append(total_q_error / len(training_data))
+            # post-epoch evaluation pass
+            eval_prev_bmu = None if reset_context_each_epoch else prev_bmu
 
-            self.avg_adjust_main.append(cp.mean(cp.abs(self.weights - old_w)))
-            self.avg_adjust_context.append(cp.mean(cp.abs(self.context_weights - old_c)))
+            static_err = 0.0
+            temporal_err = 0.0
+
+            for x in training_data:
+                C_t = self._compute_context_descriptor(eval_prev_bmu)
+                bmu = self.find_bmu(x, C_t)
+
+                w_bmu = self.weights[bmu]
+                c_bmu = self.context_weights[bmu]
+
+                # input-only error
+                static_err += cp.linalg.norm(x - w_bmu)
+
+                # temporal error
+                d_x = cp.sum((x - w_bmu) ** 2)
+                d_c = cp.sum((C_t - c_bmu) ** 2)
+                temporal_err += cp.sqrt((1.0 - self.alpha) * d_x + self.alpha * d_c)
+
+                eval_prev_bmu = bmu
+
+            static_qe = static_err / len(training_data)
+            temporal_qe = temporal_err / len(training_data)
+
+            self.q_error_history.append(float(static_qe))
+            self.temporal_q_error_history.append(float(temporal_qe))
+
+            """self.avg_adjust_main.append(cp.mean(cp.abs(self.weights - old_w)))
+            self.avg_adjust_context.append(cp.mean(cp.abs(self.context_weights - old_c)))"""

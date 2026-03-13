@@ -156,6 +156,7 @@ def plot_u_matrix(som):
     plt.colorbar(label='Avg. neighbor dist.')
     plt.title('U-matrix')
 
+
 def plot_trajectory_map(xsom):
     coords = np.array([
         (int(i), int(j)) for (i, j) in xsom.bmu_trajectory
@@ -167,7 +168,7 @@ def plot_trajectory_map(xsom):
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.gca().invert_yaxis()
-    plt.show()
+
 
 def plot_recursive_state_evolution(rsom, n_neurons_to_plot=5):
     ctx = np.array(rsom.context_history.get())
@@ -179,7 +180,7 @@ def plot_recursive_state_evolution(rsom, n_neurons_to_plot=5):
     plt.title('Evolution of recursive states over time')
     plt.legend()
     plt.grid(alpha=0.4)
-    plt.show()
+
 
 def plot_temporal_similarity(rsom):
     ctx = np.array(rsom.context_history.get() if hasattr(rsom.context_history, "get") else rsom.context_history)
@@ -190,7 +191,6 @@ def plot_temporal_similarity(rsom):
     plt.title('Temporal similarity of RSOM context states')
     plt.xlabel('Time step')
     plt.ylabel('Time step')
-    plt.show()
 
 
 def plot_context_norms(xsom):
@@ -200,7 +200,7 @@ def plot_context_norms(xsom):
     plt.ylabel("‖Context Vector‖")
     plt.title("Context Magnitude Over Training")
     plt.grid(alpha=0.4)
-    plt.show()
+
 
 def plot_merged_input_evolution(msom, dim=0):
     """Plot how one merged feature evolves over time."""
@@ -214,7 +214,7 @@ def plot_merged_input_evolution(msom, dim=0):
     plt.title(f"Merged Input Evolution (feature {dim})")
     plt.xlabel("Time step")
     plt.legend()
-    plt.show()
+
 
 def plot_recurrence(msom):
     coords = np.array(msom.bmu_trajectory.get() if hasattr(msom.bmu_trajectory, "get") else msom.bmu_trajectory)
@@ -226,4 +226,3 @@ def plot_recurrence(msom):
     plt.xlabel("Time")
     plt.ylabel("Time")
     plt.colorbar(label="Similarity")
-    plt.show()
