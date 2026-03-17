@@ -47,6 +47,8 @@ class RSOM(SOM_vectorized):
         self.context_history = []
         self.temporal_q_error_history = []
 
+        self.best_epoch = -1
+
     def _compute_energy_and_activity(self, x):
         """
         Compute:
@@ -107,7 +109,13 @@ class RSOM(SOM_vectorized):
         # Each row i of context_weights gets scaled by h_flat[i] and multiplied by y_prev
         self.context_weights += lr * (h_flat[:, None] * (y_prev - self.context_weights))  # (Q, Q)
 
-    def train(self, data, num_epochs: int = 100):
+    def train(self, 
+              data, 
+              num_epochs: int = 100,
+              min_epochs: int = 100,
+              patience: int = 5,
+              min_delta: float = 1e-4
+              ):
         data = data.reshape(-1, self.dim)
         self.init_weights(data)
 
@@ -123,11 +131,20 @@ class RSOM(SOM_vectorized):
 
         self.q_error_history = []
         self.temporal_q_error_history = []
-        # self.avg_adjust_main = []
-        # self.avg_adjust_context = []
+        self.avg_adjust_main = []
+        self.avg_adjust_context = []
         # self.context_norms = []
         self.bmu_trajectory = []
         # self.context_history = []
+
+        # early stopping / checkpointing
+        best_temporal_qe = float("inf")
+        self.best_epoch = -1
+        wait = 0
+
+        best_weights = None
+        best_context_weights = None
+        best_context_vector = None
 
         for epoch in range(num_epochs):
             lr = self.lr_schedule(epoch, num_epochs)
@@ -140,51 +157,84 @@ class RSOM(SOM_vectorized):
                 d_comb, y, bmu = self._compute_energy_and_activity(x)
                 self.update_weights(x, bmu, lr, radius)
                 self.context_vector = y  # Update global context to current activity
-
-                if epoch == num_epochs - 1:
-                    self.bmu_trajectory.append(bmu)
-                    # self.context_history.append(self.context_vector.copy())
             
-            if epoch % 5 == 0 or epoch == num_epochs - 1:
-                # Static + temporal QE computation
-                old_context_vector = self.context_vector.copy()
-                """
-                We copy old context here to still have persistent sequence state across epochs. If its ok to reset context 
-                each epoch you can just do self.context_vector = cp.zeros(Q, dtype=dtype) and not save the previous.
-                """
-                self.context_vector = cp.zeros(Q, dtype=dtype)
+            # Static + temporal QE computation
+            old_context_vector = self.context_vector.copy()
+            """
+            We copy old context here to still have persistent sequence state across epochs. If its ok to reset context 
+            each epoch you can just do self.context_vector = cp.zeros(Q, dtype=dtype) and not save the previous.
+            """
+            self.context_vector = cp.zeros(Q, dtype=dtype)
 
-                static_err = 0.0
-                temporal_err = 0.0
+            static_err = 0.0
+            temporal_err = 0.0
 
-                for x in data:
-                    d_comb, y, bmu = self._compute_energy_and_activity(x)
+            for x in data:
+                d_comb, y, bmu = self._compute_energy_and_activity(x)
 
-                    # input-only error
-                    w_bmu = self.weights[bmu]
-                    static_err += cp.linalg.norm(x - w_bmu)
+                # input-only error
+                w_bmu = self.weights[bmu]
+                static_err += cp.linalg.norm(x - w_bmu)
 
-                    # temporal error
-                    bmu_idx = bmu[0] * self.n + bmu[1]
-                    temporal_err += cp.sqrt(d_comb[bmu_idx])
+                # temporal error
+                bmu_idx = bmu[0] * self.n + bmu[1]
+                temporal_err += cp.sqrt(d_comb[bmu_idx])
 
-                    # advance recurrent state during evaluation
-                    self.context_vector = y
+                # advance recurrent state during evaluation
+                self.context_vector = y
 
-                static_qe = static_err / len(data)
-                temporal_qe = temporal_err / len(data)
+            static_qe = static_err / len(data)
+            temporal_qe = temporal_err / len(data)
 
-                self.q_error_history.append(float(static_qe))
-                self.temporal_q_error_history.append(float(temporal_qe))
+            self.q_error_history.append(float(static_qe))
+            self.temporal_q_error_history.append(float(temporal_qe))
 
-                # restore training context state
-                self.context_vector = old_context_vector
+            # restore training context state
+            self.context_vector = old_context_vector
 
             """
             delta_main = cp.abs(self.weights - old_main_weights)
-            self.avg_adjust_main.append(cp.mean(delta_main))
+            self.avg_adjust_main.append(float(cp.mean(delta_main)))
             delta_context = cp.abs(self.context_weights - old_context_weights)
-            self.avg_adjust_context.append(cp.mean(delta_context))
+            self.avg_adjust_context.append(float(cp.mean(delta_context)))
 
             self.context_norms.append(cp.linalg.norm(self.context_vector))
             """
+
+            # best checkpointing (keeps a copy of the best model state we have seen so far, 
+            # instead of assuming the last epoch is the best)
+            if temporal_qe < best_temporal_qe - min_delta:
+                best_temporal_qe = temporal_qe
+                self.best_epoch = epoch
+                wait = 0
+
+                best_weights = self.weights.copy()
+                best_context_weights = self.context_weights.copy()
+                best_context_vector = self.context_vector.copy()
+            else:
+                wait += 1
+            
+            # early stopping
+            if (epoch + 1) >= min_epochs and wait >= patience:
+                break
+        
+        # we restore best checkpoint
+        if best_weights is not None:
+            self.weights = best_weights
+            self.context_weights = best_context_weights
+            self.context_vector = best_context_vector
+
+        # Recompute BMU trajectory using restored best model
+        self.bmu_trajectory = []
+        eval_context = cp.zeros(Q, dtype=dtype)
+
+        old_context_vector = self.context_vector
+        self.context_vector = eval_context
+
+        for x in data:
+            _, y, bmu = self._compute_energy_and_activity(x)
+            self.bmu_trajectory.append(bmu)
+            self.context_vector = y
+
+        # keep restored best context state if you want it back
+        self.context_vector = best_context_vector if best_context_vector is not None else old_context_vector

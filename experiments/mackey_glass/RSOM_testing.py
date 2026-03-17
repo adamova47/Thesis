@@ -80,7 +80,7 @@ def run_config(params):
     return {
         "m": m,
         "n": n,
-        "epochs": epochs,
+        "epochs": rsom.best_epoch,
         "init": init,
         "metric": metric,
         "kernel": kernel,
@@ -101,14 +101,14 @@ def main():
 
     # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
     dims = [(10, 10)]
-    inits = ["data_range"]
+    inits = ["uniform"]
     metrics = ["euclid"]
     kernels = ["gaussian"]
 
-    alphas = [0.8, 0.75, 0.7, 0.65, 0.6]
-    betas = [0.1, 0.33, 0.4, 0.5, 0.7, 0.84]
+    alphas = [0.7]
+    betas = [0.84]
 
-    epochs = 150
+    epochs = 200
 
     results_file = os.path.join(os.path.dirname(__file__), "rsom_results.pkl")
 
