@@ -1,4 +1,5 @@
 import pickle
+import numpy as np
 import cupy as cp
 from joblib import Parallel, delayed
 import sys
@@ -19,8 +20,10 @@ def make_result_key(result):
         result["init"],
         result["metric"],
         result["kernel"],
-        result["epochs"],
+        result["train_epochs"],
+        42
     )
+
 
 def pickle_dump(obj, filepath):
     filepath = Path(filepath)
@@ -42,7 +45,7 @@ def load_results_dict(filepath):
 
 
 def run_config(params):
-    m, n, init_method, grid_metric, kernel, x, y, epochs = params
+    m, n, init_method, grid_metric, kernel, x, epochs = params
 
     som = SOM(
         m, n,
@@ -54,7 +57,7 @@ def run_config(params):
     )
 
     som.train(x, num_epochs=epochs)
-    qe = float(som.q_error_history[-1].get())
+    qe = float(som.q_error_history[-1])
 
     hits = cp.zeros((m, n), dtype=cp.int32)
 
@@ -71,10 +74,12 @@ def run_config(params):
     return {
         "m": m,
         "n": n,
-        "epochs" : epochs,
+        "train_epochs": epochs,
+        "best_epoch": som.best_epoch + 1,
         "init": init_method,
         "metric": grid_metric,
         "kernel": kernel,
+        "weights": cp.asnumpy(som.weights),
         "qe": qe,
         "entropy": entropy,
         "dead_neurons": dead_neurons,
@@ -85,9 +90,9 @@ def run_config(params):
 def main():
     # load data
     here = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(here, "seeds.txt")
+    data_path = os.path.join(here, "seeds_dataset.txt")
     data = np.loadtxt(data_path)
-    x = cp.asarray(data[:, :-1])
+    x = cp.asarray(smart_normalize(data[:, :-1]))
     y = data[:, -1].astype(int)
 
     # generate map dimensions - number of neurons between 80 and 150
@@ -97,12 +102,12 @@ def main():
     inits = ["uniform", "data_range", "sample", "pca", "kmeans"]
     metrics = ["euclid", "manhattan", "chebyshev", "toroidal"]
     kernels = ["gaussian", "bubble", "epanechnikov", "triangular", "inverse"]
-    epochs = 150
+    epochs = 200
 
-    results_file = os.path.join(os.path.dirname(__file__), "som_results.pkl")
+    results_file = os.path.join(os.path.dirname(__file__), "som_results_exponential.pkl")
 
     configs = [
-        (m, n, init_method, grid_metric, kernel, x, y, epochs)
+        (m, n, init_method, grid_metric, kernel, x, epochs)
         for m, n in dims
         for init_method in inits
         for grid_metric in metrics
@@ -126,9 +131,11 @@ def main():
     for result in results:
         key = make_result_key(result)
         all_results[key] = {
+            "weights": result["weights"],
             "qe": result["qe"],
             "entropy": result["entropy"],
             "dead_neurons": result["dead_neurons"],
+            "best_epoch": result["best_epoch"],
         }
 
     # save at the end
