@@ -22,8 +22,17 @@ def make_result_key(result):
         result["kernel"],
         result["alpha"],
         result["beta"],
-        result["epochs"],
+        result["train_epochs"],
     )
+
+
+def export_msom_state(msom):
+    return {
+        "weights": cp.asnumpy(msom.weights),
+        "context_weights": cp.asnumpy(msom.context_weights),
+        "bmu_trajectories": to_cpu(msom.bmu_trajectories),
+        "sequence_lengths": list(msom.sequence_lengths)
+    }
 
 
 def pickle_dump(obj, filepath):
@@ -59,7 +68,7 @@ def run_config(params):
         seed=42
     )
     msom.train(x, num_epochs=epochs)
-    qe = msom.q_error_history[-1]
+    qe = msom.temporal_q_error_history[-1]
 
     prev_bmu = None
     hits = cp.zeros((m, n), dtype=cp.int32)
@@ -81,12 +90,14 @@ def run_config(params):
     return {
         "m": m,
         "n": n,
-        "epochs": epochs,
+        "train_epochs": epochs,
+        "best_epoch": msom.best_epoch + 1,
         "init": init,
         "metric": metric,
         "kernel": kernel,
         "alpha": alpha,
         "beta": beta,
+        "state": export_msom_state(msom),
         "qe": qe,
         "entropy": entropy,
         "dead_neurons": dead_neurons,
@@ -101,15 +112,16 @@ def main():
     y = df["t+1"].values.reshape(-1, 1)
 
     # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
-    dims = [(10, 10)]
-    inits = ["data_range"]
-    metrics = ["euclid", "chebyshev", "toroidal"]
-    kernels = ["bubble", "triangular"]
+    dims = [(12,12)]
+    """(9,9), (10,10), (8,12), (9,12), (11,11), (10,13), (12,12)"""
+    inits = ["uniform", "sample", "pca"]
+    metrics = ["euclid", "manhattan"]
+    kernels = ["gaussian", "bubble"]
 
-    alphas = [1.0, 0.5, 0.1]
-    betas = [0.1, 0.3, 0.5, 0.65, 0.8]
+    alphas = [0.1, 0.3, 0.6, 0.9]
+    betas = [0.1, 0.3, 0.6, 0.9]
 
-    epochs = 150
+    epochs = 250
 
     results_file = os.path.join(os.path.dirname(__file__), "msom_results.pkl")
 
@@ -128,7 +140,7 @@ def main():
     )
 
     best = min(results, key=lambda r: r["qe"])
-    best_rsom = best["msom"]
+    best_msom = best["msom"]
 
     print(f"Best config: m={best['m']}, n={best['n']}, init={best['init']}, "
         f"metric={best['metric']}, kernel={best['kernel']}, "
@@ -142,20 +154,23 @@ def main():
     for result in results:
         key = make_result_key(result)
         all_results[key] = {
+            "state": result["state"],
             "qe": result["qe"],
             "entropy": result["entropy"],
             "dead_neurons": result["dead_neurons"],
+            "best_epoch": result["best_epoch"],
         }
 
     # save at the end
     pickle_dump(all_results, results_file)
 
-    plot_quantization_error(best_rsom)
-    plot_temporal_quantization_error(best_rsom)
-    plot_trajectory_map(best_rsom)
-    # plot_recursive_state_evolution(best_rsom, 100)
-    # plot_temporal_similarity(best_rsom)
-    # plot_context_norms(best_rsom)
+    plot_quantization_error(best_msom)
+    plot_temporal_quantization_error(best_msom)
+    plot_trajectory_map(best_msom)
+    # plot_recursive_state_evolution(best_msom, 100)
+    # plot_temporal_similarity(best_msom)
+    # plot_context_norms(best_msom)
+    plt.show()
 
 
 
