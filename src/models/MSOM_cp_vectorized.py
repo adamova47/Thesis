@@ -13,19 +13,27 @@ class MSOM(SOM_vectorized):
                  *, 
                  weight_init_method = "uniform", 
                  grid_metric = "euclid", 
-                 neighborhood_kernel = "gaussian", 
+                 neighborhood_kernel = "gaussian",
+                 lr0=0.08,
+                 lr_final=0.005,
+                 radius0=None,
+                 radius_final=0.8, 
                  lr_schedule = None, 
                  radius_schedule = None, 
                  seed=None,
                  context_init="zeros",  # "zeros" or "random_small"
                  ):
-        super().__init__(m, n, dim, 
-                         weight_init_method, 
-                         grid_metric, 
-                         neighborhood_kernel, 
-                         lr_schedule, 
-                         radius_schedule, 
-                         seed)
+        super().__init__(m=m, n=n, dim=dim,
+                         weight_init_method=weight_init_method, 
+                         grid_metric=grid_metric, 
+                         neighborhood_kernel=neighborhood_kernel,
+                         lr0=lr0,
+                         lr_final=lr_final,
+                         radius0=radius0,
+                         radius_final=radius_final, 
+                         lr_schedule=lr_schedule,
+                         radius_schedule=radius_schedule,
+                         seed=seed)
         
         self.alpha = alpha
         self.beta = beta
@@ -89,18 +97,49 @@ class MSOM(SOM_vectorized):
         self.weights += lr * h[:, :, None] * (x - self.weights)
         self.context_weights += lr * h[:, :, None] * (C_t - self.context_weights)
 
-    def train(self, data, num_epochs: int = 100, reset_context_each_epoch : bool = True):
-        training_data = cp.asarray(data, dtype=DEFAULT_DTYPE)
-        training_data = training_data.reshape(-1, self.dim)
-        self.init_weights(training_data)
+    def train(
+        self,
+        data,
+        num_epochs: int = 100,
+        min_epochs: int = 100,
+        patience: int = 5,
+        min_delta: float = 1e-4
+    ):
+        # Accept:
+        #   (T, dim)            -> one sequence
+        #   (N, T, dim)         -> many equal-length sequences
+        #   list of (Ti, dim)   -> many variable-length sequences
+
+        if isinstance(data, (list, tuple)):
+            sequences = [cp.asarray(seq, dtype=DEFAULT_DTYPE) for seq in data]
+        else:
+            data = cp.asarray(data, dtype=DEFAULT_DTYPE)
+            if data.ndim == 2:
+                sequences = [data]
+            elif data.ndim == 3:
+                sequences = [data[i] for i in range(data.shape[0])]
+            else:
+                raise ValueError("Expected data shape (T, dim), (N, T, dim), or list of sequences.")
+
+        all_points = cp.concatenate(sequences, axis=0)
+        self.init_weights(all_points)
         self._init_context_weights()
-        prev_bmu = None
 
         self.q_error_history = []
+        self.temporal_q_error_history = []
+        self.bmu_trajectory = []
+        self.bmu_trajectories = []
         # self.avg_adjust_main = []
         # self.avg_adjust_context = []
-        self.bmu_trajectory = []
         # self.context_descriptor_history = []
+        self.sequence_lengths = []
+        self.best_epoch = -1
+
+        # early stopping / checkpointing
+        best_temporal_qe = float("inf")
+        wait = 0
+        best_weights = None
+        best_context_weights = None
 
         for epoch in range(num_epochs):
             lr = self.lr_schedule(epoch, num_epochs)
@@ -109,51 +148,96 @@ class MSOM(SOM_vectorized):
             # old_w = self.weights.copy()
             # old_c = self.context_weights.copy()
 
-            if reset_context_each_epoch:
-                prev_bmu = None
-
-            
             # training pass
-            for x in training_data:
-                C_t = self._compute_context_descriptor(prev_bmu)
-                bmu = self.find_bmu(x, C_t)
+            for seq in sequences:
+                prev_bmu = None
+                # sequence boundaries should reset temporal state
+                # even if later you decide to use some cross-epoch carryover
 
-                self.update_weights(x, C_t, bmu, lr, radius)
+                for x in seq:
+                    C_t = self._compute_context_descriptor(prev_bmu)
+                    bmu = self.find_bmu(x, C_t)
 
-                prev_bmu = bmu
+                    self.update_weights(x, C_t, bmu, lr, radius)
 
-                if epoch == num_epochs - 1:
-                    self.bmu_trajectory.append(bmu)
-                    # self.context_descriptor_history.append(C_t.copy())
+                    prev_bmu = bmu
 
             # post-epoch evaluation pass
-            eval_prev_bmu = None if reset_context_each_epoch else prev_bmu
-
             static_err = 0.0
             temporal_err = 0.0
+            total_steps = 0
 
-            for x in training_data:
-                C_t = self._compute_context_descriptor(eval_prev_bmu)
-                bmu = self.find_bmu(x, C_t)
+            for seq in sequences:
+                eval_prev_bmu = None
 
-                w_bmu = self.weights[bmu]
-                c_bmu = self.context_weights[bmu]
+                for x in seq:
+                    C_t = self._compute_context_descriptor(eval_prev_bmu)
+                    bmu = self.find_bmu(x, C_t)
 
-                # input-only error
-                static_err += cp.linalg.norm(x - w_bmu)
+                    w_bmu = self.weights[bmu]
+                    c_bmu = self.context_weights[bmu]
 
-                # temporal error
-                d_x = cp.sum((x - w_bmu) ** 2)
-                d_c = cp.sum((C_t - c_bmu) ** 2)
-                temporal_err += cp.sqrt((1.0 - self.alpha) * d_x + self.alpha * d_c)
+                    # input-only error
+                    static_err += cp.linalg.norm(x - w_bmu)
 
-                eval_prev_bmu = bmu
+                    # temporal error
+                    d_x = cp.sum((x - w_bmu) ** 2)
+                    d_c = cp.sum((C_t - c_bmu) ** 2)
+                    temporal_err += cp.sqrt((1.0 - self.alpha) * d_x + self.alpha * d_c)
 
-            static_qe = static_err / len(training_data)
-            temporal_qe = temporal_err / len(training_data)
+                    eval_prev_bmu = bmu
+                    total_steps += 1
+
+            static_qe = static_err / total_steps
+            temporal_qe = temporal_err / total_steps
 
             self.q_error_history.append(float(static_qe))
             self.temporal_q_error_history.append(float(temporal_qe))
 
             """self.avg_adjust_main.append(cp.mean(cp.abs(self.weights - old_w)))
             self.avg_adjust_context.append(cp.mean(cp.abs(self.context_weights - old_c)))"""
+
+            # best checkpointing
+            if temporal_qe < best_temporal_qe - min_delta:
+                best_temporal_qe = float(temporal_qe)
+                self.best_epoch = epoch
+                wait = 0
+                best_weights = self.weights.copy()
+                best_context_weights = self.context_weights.copy()
+            else:
+                wait += 1
+
+            # early stopping
+            if (epoch + 1) >= min_epochs and wait >= patience:
+                break
+
+        # restore best checkpoint
+        if best_weights is not None:
+            self.weights = best_weights
+            self.context_weights = best_context_weights
+        else:
+            self.best_epoch = num_epochs - 1
+
+        # rebuild BMU trajectories using restored best model
+        self.bmu_trajectory = []
+        self.bmu_trajectories = []
+        self.sequence_lengths = []
+
+        for seq in sequences:
+            prev_bmu = None
+            seq_bmus = []
+
+            for x in seq:
+                C_t = self._compute_context_descriptor(prev_bmu)
+                bmu = self.find_bmu(x, C_t)
+
+                bmu_tuple = (int(bmu[0]), int(bmu[1]))
+                self.bmu_trajectory.append(bmu_tuple)
+                seq_bmus.append(bmu_tuple)
+
+                # self.context_descriptor_history.append(C_t.copy())
+
+                prev_bmu = bmu
+
+            self.bmu_trajectories.append(seq_bmus)
+            self.sequence_lengths.append(len(seq_bmus))

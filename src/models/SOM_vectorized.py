@@ -15,6 +15,10 @@ class SOM_vectorized:
                  weight_init_method: str = "uniform",
                  grid_metric: str = "euclid",
                  neighborhood_kernel: str = "gaussian",
+                 lr0=0.1,
+                 lr_final=0.001,
+                 radius0=None,
+                 radius_final=1.0,
                  lr_schedule: callable = None,
                  radius_schedule: callable = None,
                  seed=None):
@@ -37,8 +41,13 @@ class SOM_vectorized:
         self.neighborhood_kernel = neighborhood_kernel
 
         # learning rate and radius lineary decay by default, but can be customized with a function of (current_epoch, total_epochs)
-        self.lr_schedule = lr_schedule or (lambda t, T: 0.1 * (1 - t / T))
-        self.radius_schedule = radius_schedule or (lambda t, T: max(m, n) / 2 * (1 - t / T))
+        self.lr0 = lr0
+        self.lr_final = lr_final
+        self.radius0 = radius0 if radius0 is not None else max(m, n) / 2
+        self.radius_final = radius_final
+
+        self.lr_schedule = lr_schedule or self._default_lr_schedule
+        self.radius_schedule = radius_schedule or self._default_radius_schedule
 
         # we track quantization error and average adjustment for monitoring convergence
         self.q_error_history = []
@@ -47,6 +56,14 @@ class SOM_vectorized:
         # precompute grid coordinates for efficient distance calculations during training
         # you avoid recomputing grid indices constantly
         self._precompute_grid_coords()
+
+
+    def _default_lr_schedule(self, t, T):
+        return self.lr0 * (self.lr_final / self.lr0) ** (t / T)
+
+
+    def _default_radius_schedule(self, t, T):
+        return self.radius0 * (self.radius_final / self.radius0) ** (t / T)
 
 
     def init_weights(self, data):
@@ -82,6 +99,11 @@ class SOM_vectorized:
             You lay your grid on the first 2 principal components of the data.
             It often makes training smoother and faster but only makes sense if dim is not tiny and the PCA structure matters.
             """
+            if self.dim < 2 or data.shape[0] < 2:
+                # fallback for 1D or too-few-samples cases
+                indices = cp.random.choice(data.shape[0], size=self.m * self.n, replace=True)
+                self.weights = data[indices].reshape(self.m, self.n, self.dim).astype(DEFAULT_DTYPE)
+                return
             from sklearn.decomposition import PCA
             data_np = cp.asnumpy(data)
             pca = PCA(n_components=2).fit(data_np)
@@ -151,6 +173,7 @@ class SOM_vectorized:
             return cp.sqrt(di**2 + dj**2)
 
     def compute_neighborhood(self, dists, radius):
+        radius = max(float(radius), 1e-8)
         # How influence decays with grid distance.
         if self.neighborhood_kernel  == "gaussian":
             return cp.exp(-(dists**2) / (2 * radius**2))
@@ -175,13 +198,24 @@ class SOM_vectorized:
         self.weights += update
 
 
-    def train(self, data, num_epochs = 100):
+    def train(self, 
+              data, 
+              num_epochs = 100,
+              min_epochs: int = 75,
+              patience: int = 8,
+              min_delta: float = 1e-4
+              ):
         training_data = cp.asarray(data, dtype=DEFAULT_DTYPE)
         training_data = training_data.reshape(-1, self.dim)
         self.init_weights(training_data)
 
         self.q_error_history = []
         self.avg_adjust_history = []
+
+        best_metric = float("inf")
+        best_weights = None
+        wait = 0
+        best_epoch = -1
 
         for epoch in range(num_epochs):
             perm = cp.random.permutation(len(training_data))
@@ -198,7 +232,25 @@ class SOM_vectorized:
                 total_q_error += cp.linalg.norm(x - w_bmu)
                 self.update_weights(x, bmu, lr, radius)
 
-            self.q_error_history.append(total_q_error / len(data_epoch))
+            q_error = float((total_q_error / len(data_epoch)).item())
+            self.q_error_history.append(q_error)
+
             delta = self.weights - old_weights
             avg_adjust = cp.mean(cp.linalg.norm(delta.reshape(-1, self.dim), axis=1))
-            self.avg_adjust_history.append(avg_adjust)
+            self.avg_adjust_history.append(float(avg_adjust.item()))
+
+            if (best_metric - q_error) > min_delta:
+                best_metric = q_error
+                best_weights = self.weights.copy()
+                best_epoch = epoch
+                wait = 0
+            elif epoch + 1 >= min_epochs:
+                wait += 1
+                if wait >= patience:
+                    break
+        
+        if best_weights is not None:
+            self.weights = best_weights
+
+        self.best_q_error = best_metric
+        self.best_epoch = best_epoch

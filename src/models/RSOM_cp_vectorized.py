@@ -7,12 +7,16 @@ class RSOM(SOM_vectorized):
                  m: int,
                  n: int,
                  dim: int,
-                 alpha: float = 0.1, # controls how much the input matters relative to memory (alpha = 1 behaves like a SOM and alpha = 0 behaves like a pure memory matcher)
+                 alpha: float = 0.1, # controls how much the input matters relative to memory
                  beta: float = 0.5, # scaling factor for recurrent (context) distance term
                  *,
                  weight_init_method='uniform',
                  grid_metric='euclid',
                  neighborhood_kernel='gaussian',
+                 lr0=0.08,
+                 lr_final=0.005,
+                 radius0=None,
+                 radius_final=0.8,
                  lr_schedule=None,
                  radius_schedule=None,
                  seed=None
@@ -22,6 +26,10 @@ class RSOM(SOM_vectorized):
                          weight_init_method=weight_init_method,
                          grid_metric=grid_metric,
                          neighborhood_kernel=neighborhood_kernel,
+                         lr0=lr0,
+                         lr_final=lr_final,
+                         radius0=radius0,
+                         radius_final=radius_final,
                          lr_schedule=lr_schedule,
                          radius_schedule=radius_schedule,
                          seed=seed)
@@ -43,10 +51,12 @@ class RSOM(SOM_vectorized):
         self.avg_adjust_main = []
         self.avg_adjust_context = []
         self.context_norms = []
-        self.bmu_trajectory = []
+        self.bmu_trajectory = []          # flat
+        self.bmu_trajectories = []        # per-sequence
+        self.activity_trajectories = []   # per-sequence
+        self.sequence_lengths = []
         self.context_history = []
         self.temporal_q_error_history = []
-
         self.best_epoch = -1
 
     def _compute_energy_and_activity(self, x):
@@ -109,16 +119,73 @@ class RSOM(SOM_vectorized):
         # Each row i of context_weights gets scaled by h_flat[i] and multiplied by y_prev
         self.context_weights += lr * (h_flat[:, None] * (y_prev - self.context_weights))  # (Q, Q)
 
+    
+    def reset_context(self):
+        Q = self.m * self.n
+        self.context_vector = cp.zeros(Q, dtype=self.weights.dtype)
+
+
+    def _store_sequence_traces(self, sequences):
+        Q = self.m * self.n
+        dtype = self.weights.dtype
+
+        self.bmu_trajectory = []
+        self.bmu_trajectories = []
+        self.activity_trajectories = []
+        self.sequence_lengths = []
+
+        for seq in sequences:
+            self.reset_context()
+
+            seq_bmus = []
+            seq_activities = []
+
+            for x in seq:
+                _, y, bmu = self._compute_energy_and_activity(x)
+                # Convert BMU coordinates to plain Python ints for easy storage/use
+                bmu_tuple = (int(bmu[0]), int(bmu[1]))
+                seq_bmus.append(bmu_tuple)
+                self.bmu_trajectory.append(bmu_tuple)
+                # Save a copy so later updates to context don't overwrite history
+                seq_activities.append(y.copy())
+                self.context_vector = y
+
+            self.bmu_trajectories.append(seq_bmus)
+            self.sequence_lengths.append(len(seq_bmus))
+
+            if len(seq_activities) > 0:
+                self.activity_trajectories.append(cp.stack(seq_activities, axis=0))
+            else:
+                self.activity_trajectories.append(cp.empty((0, Q), dtype=dtype))
+
+        self.reset_context()
+
+    
     def train(self, 
               data, 
               num_epochs: int = 100,
-              min_epochs: int = 100,
-              patience: int = 5,
+              min_epochs: int = 75,
+              patience: int = 8,
               min_delta: float = 1e-4
               ):
-        data = data.reshape(-1, self.dim)
-        self.init_weights(data)
+        # Accept:
+        #   (T, dim)            -> one sequence
+        #   (N, T, dim)         -> many equal-length sequences
+        #   list of (Ti, dim)   -> many variable-length sequences
 
+        if isinstance(data, (list, tuple)):
+            sequences = [cp.asarray(seq, dtype=cp.float32) for seq in data]
+        else:
+            data = cp.asarray(data, dtype=cp.float32)
+            if data.ndim == 2:
+                sequences = [data]
+            elif data.ndim == 3:
+                sequences = [data[i] for i in range(data.shape[0])]
+            else:
+                raise ValueError("Expected data shape (T, dim), (N, T, dim), or list of sequences.")
+
+        all_points = cp.concatenate(sequences, axis=0)
+        self.init_weights(all_points)
         Q = self.m * self.n
         dtype = self.weights.dtype
         """
@@ -126,13 +193,13 @@ class RSOM(SOM_vectorized):
         use small values around 0 so you can do:
         self.context_weights = 0.01 * cp.random.randn(Q, Q, dtype=dtype)
         """
-        self.context_weights = cp.random.rand(Q, Q, dtype=dtype)
-        self.context_vector = 0.01 * cp.zeros(Q, dtype=dtype)
+        self.context_weights = (0.01 * cp.random.randn(Q, Q)).astype(dtype)
+        self.context_vector = cp.zeros(Q, dtype=dtype)
 
         self.q_error_history = []
         self.temporal_q_error_history = []
-        self.avg_adjust_main = []
-        self.avg_adjust_context = []
+        # self.avg_adjust_main = []
+        # self.avg_adjust_context = []
         # self.context_norms = []
         self.bmu_trajectory = []
         # self.context_history = []
@@ -144,7 +211,6 @@ class RSOM(SOM_vectorized):
 
         best_weights = None
         best_context_weights = None
-        best_context_vector = None
 
         for epoch in range(num_epochs):
             lr = self.lr_schedule(epoch, num_epochs)
@@ -153,44 +219,41 @@ class RSOM(SOM_vectorized):
             # old_main_weights = self.weights.copy()
             # old_context_weights = self.context_weights.copy()
 
-            for x in data:
-                d_comb, y, bmu = self._compute_energy_and_activity(x)
-                self.update_weights(x, bmu, lr, radius)
-                self.context_vector = y  # Update global context to current activity
-            
-            # Static + temporal QE computation
-            old_context_vector = self.context_vector.copy()
-            """
-            We copy old context here to still have persistent sequence state across epochs. If its ok to reset context 
-            each epoch you can just do self.context_vector = cp.zeros(Q, dtype=dtype) and not save the previous.
-            """
-            self.context_vector = cp.zeros(Q, dtype=dtype)
+            for seq in sequences:
+                self.reset_context()  
+                for x in seq:
+                    d_comb, y, bmu = self._compute_energy_and_activity(x)
+                    self.update_weights(x, bmu, lr, radius)
+                    self.context_vector = y  # Update global context to current activity
 
+            # evaluation
             static_err = 0.0
             temporal_err = 0.0
+            total_steps = 0
 
-            for x in data:
-                d_comb, y, bmu = self._compute_energy_and_activity(x)
+            for seq in sequences:
+                self.reset_context()
+                for x in seq:
+                    d_comb, y, bmu = self._compute_energy_and_activity(x)
 
-                # input-only error
-                w_bmu = self.weights[bmu]
-                static_err += cp.linalg.norm(x - w_bmu)
+                    # input-only error
+                    w_bmu = self.weights[bmu]
+                    static_err += cp.linalg.norm(x - w_bmu)
 
-                # temporal error
-                bmu_idx = bmu[0] * self.n + bmu[1]
-                temporal_err += cp.sqrt(d_comb[bmu_idx])
+                    # temporal error
+                    bmu_idx = bmu[0] * self.n + bmu[1]
+                    temporal_err += cp.sqrt(d_comb[bmu_idx])
+                    
+                    # advance recurrent state during evaluation
+                    self.context_vector = y
+                    total_steps += 1
+            
 
-                # advance recurrent state during evaluation
-                self.context_vector = y
-
-            static_qe = static_err / len(data)
-            temporal_qe = temporal_err / len(data)
+            static_qe = static_err / total_steps
+            temporal_qe = temporal_err / total_steps
 
             self.q_error_history.append(float(static_qe))
             self.temporal_q_error_history.append(float(temporal_qe))
-
-            # restore training context state
-            self.context_vector = old_context_vector
 
             """
             delta_main = cp.abs(self.weights - old_main_weights)
@@ -207,10 +270,8 @@ class RSOM(SOM_vectorized):
                 best_temporal_qe = temporal_qe
                 self.best_epoch = epoch
                 wait = 0
-
                 best_weights = self.weights.copy()
                 best_context_weights = self.context_weights.copy()
-                best_context_vector = self.context_vector.copy()
             else:
                 wait += 1
             
@@ -222,19 +283,9 @@ class RSOM(SOM_vectorized):
         if best_weights is not None:
             self.weights = best_weights
             self.context_weights = best_context_weights
-            self.context_vector = best_context_vector
+        else:
+            self.best_epoch = num_epochs
+        
 
         # Recompute BMU trajectory using restored best model
-        self.bmu_trajectory = []
-        eval_context = cp.zeros(Q, dtype=dtype)
-
-        old_context_vector = self.context_vector
-        self.context_vector = eval_context
-
-        for x in data:
-            _, y, bmu = self._compute_energy_and_activity(x)
-            self.bmu_trajectory.append(bmu)
-            self.context_vector = y
-
-        # keep restored best context state if you want it back
-        self.context_vector = best_context_vector if best_context_vector is not None else old_context_vector
+        self._store_sequence_traces(sequences)
