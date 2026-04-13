@@ -28,6 +28,18 @@ def smart_normalize(data):
     return StandardScaler().fit_transform(data)
 
 
+def to_cpu(obj):
+    if isinstance(obj, cp.ndarray):
+        return cp.asnumpy(obj)
+    if isinstance(obj, list):
+        return [to_cpu(x) for x in obj]
+    if isinstance(obj, tuple):
+        return tuple(to_cpu(x) for x in obj)
+    if isinstance(obj, dict):
+        return {k: to_cpu(v) for k, v in obj.items()}
+    return obj
+
+
 def plot_quantization_error(som):
     if hasattr(som.q_error_history[0], "get"):
         q_errors = [err.get() for err in som.q_error_history]
