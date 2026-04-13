@@ -22,8 +22,20 @@ def make_result_key(result):
         result["kernel"],
         result["alpha"],
         result["beta"],
-        result["epochs"],
+        result["train_epochs"],
+        42
     )
+
+
+def export_rsom_state(rsom):
+    return {
+        "weights": cp.asnumpy(rsom.weights),
+        "context_weights": cp.asnumpy(rsom.context_weights),
+        "bmu_trajectories": to_cpu(rsom.bmu_trajectories),
+        "activity_trajectories": to_cpu(rsom.activity_trajectories),
+        "sequence_lengths": list(rsom.sequence_lengths)
+    }
+
 
 def pickle_dump(obj, filepath):
     filepath = Path(filepath)
@@ -45,7 +57,7 @@ def load_results_dict(filepath):
 
 
 def run_config(params):
-    m, n, init, metric, kernel, alpha, beta, x, y, epochs = params
+    m, n, init, metric, kernel, alpha, beta, x, epochs = params
     rsom = RSOM(
         m=m,
         n=n,
@@ -80,12 +92,14 @@ def run_config(params):
     return {
         "m": m,
         "n": n,
-        "epochs": rsom.best_epoch,
+        "train_epochs": epochs,
+        "best_epoch": rsom.best_epoch + 1,
         "init": init,
         "metric": metric,
         "kernel": kernel,
         "alpha": alpha,
         "beta": beta,
+        "state": export_rsom_state(rsom),
         "qe": qe,
         "entropy": entropy,
         "dead_neurons": dead_neurons,
@@ -100,20 +114,21 @@ def main():
     y = df["t+1"].values.reshape(-1, 1)
 
     # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
-    dims = [(10, 10)]
-    inits = ["uniform"]
-    metrics = ["euclid"]
-    kernels = ["gaussian"]
+    dims = [(9,9), (10,10)] 
+    """(9,9), (10,10), (10,10), (8,12), (9,12), (11,11), (10,13), (12,12)"""
+    inits = ["uniform", "sample", "pca"]
+    metrics = ["euclid", "manhattan"]
+    kernels = ["gaussian", "bubble"]
 
-    alphas = [0.7]
-    betas = [0.84]
+    alphas = [0.1, 0.3, 0.6, 0.9]
+    betas = [0.1, 0.3, 0.6, 0.9]
 
-    epochs = 200
+    epochs = 250
 
     results_file = os.path.join(os.path.dirname(__file__), "rsom_results.pkl")
 
     configs = [
-        (m, n, init, metric, kernel, a, b, x, y, epochs)
+        (m, n, init, metric, kernel, a, b, x, epochs)
         for m, n in dims
         for init in inits
         for metric in metrics
@@ -142,9 +157,11 @@ def main():
     for result in results:
         key = make_result_key(result)
         all_results[key] = {
+            "state": result["state"],
             "qe": result["qe"],
             "entropy": result["entropy"],
             "dead_neurons": result["dead_neurons"],
+            "best_epoch": result["best_epoch"],
         }
 
     # save at the end
