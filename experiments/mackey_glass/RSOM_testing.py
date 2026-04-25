@@ -114,8 +114,8 @@ def main():
     y = df["t+1"].values.reshape(-1, 1)
 
     # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
-    dims = [(9,9), (10,10)] 
-    """(9,9), (10,10), (10,10), (8,12), (9,12), (11,11), (10,13), (12,12)"""
+    dims = [(11,11)]
+    """(9,9), (10,10), (8,12), (9,12), (11,11), (10,13), (12,12)"""
     inits = ["uniform", "sample", "pca"]
     metrics = ["euclid", "manhattan"]
     kernels = ["gaussian", "bubble"]
