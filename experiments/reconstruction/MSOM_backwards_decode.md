@@ -146,13 +146,13 @@ $$
 then
 
 $$
-\text{gap}_i = \text{self\_cost} *i - \min_k \text{cost}* {i,k}^{(j)}
+\text{gap}_i = \text{selfcost} *i - \min_k \text{cost}* {i,k}^{(j)}
 $$
 
 and finally
 
 $$
-\text{score}_i = \text{self\_cost}_i + \text{margin\_weight} \cdot \text{gap}_i
+\text{score}_i = \text{selfcost}_i + \text{marginweight} \cdot \text{gap}_i
 $$
 
 Lower scores are better.
@@ -347,13 +347,13 @@ That means predecessor `1` makes target neuron `2` a valid next winner.
 For predecessor `1`, the target-specific part is
 
 $$
-\text{self\_cost}_1 = \alpha |G[1] - C[2]|^2 = 0.5 \cdot 0.5625 = 0.28125
+\text{selfcost}_1 = \alpha |G[1] - C[2]|^2 = 0.5 \cdot 0.5625 = 0.28125
 $$
 
 The best merged cost in that row is also
 
 $$
-\text{best_cost}_1 = 0.28125
+\text{bestcost}_1 = 0.28125
 $$
 
 So
