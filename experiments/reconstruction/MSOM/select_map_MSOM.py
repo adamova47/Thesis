@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+
 """
 Opens the saved pickle (dictionary) file.
 Keys are hyperparameter settings.
@@ -27,26 +28,21 @@ Python dictionary.
 """
 def results_to_dataframe(results_dict):
     rows = []
-
     # we loop over every saved experiment in the pickle file
     for key, val in results_dict.items():
-
         # the key is: (m, n, init, metric, kernel, alpha, beta, train_epochs)
         m, n, init, metric, kernel, alpha, beta, train_epochs = key
-
         # pull out the performance metrics saved for this run
         qe = float(val["qe"])
         entropy = float(val["entropy"])
         dead_neurons = int(val["dead_neurons"])
         best_epoch = int(val["best_epoch"])
-
         # total amount of neurons in the map
         total_neurons = m * n
         # active neurons = all neurons - dead neurons
         active_neurons = total_neurons - dead_neurons
         # dead ration = what fraction of the map is unused
         dead_ratio = dead_neurons / total_neurons if total_neurons > 0 else np.nan
-
         
         # raw entropy grows with map size, so comparing raw entropy
         # across different maps is unfair. So we normalize it.
@@ -55,7 +51,6 @@ def results_to_dataframe(results_dict):
             norm_entropy = entropy / math.log(active_neurons)
         else:
             norm_entropy = 0.0
-
         # store one experiment as one row
         rows.append({
             "m": m,

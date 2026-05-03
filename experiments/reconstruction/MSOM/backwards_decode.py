@@ -99,7 +99,7 @@ def transition_scores_to_target(
     best_cost = np.min(all_costs, axis=1)
     # measure how well the chosen target fits as next state
     # this is the target-specific context term for each predecessor
-    self_cost = alpha * ctx_dists[:, target_j]
+    self_cost = all_costs[:, target_j]
     # if self_cost is much worse than the best achievable merged cost 
     # then target_j is a weak next-state choice for that predecessor
     gap = self_cost - best_cost
@@ -155,7 +155,7 @@ def beam_decode_chains(
         hard_self_consistent=False,
         allow_self=True,
         avoid_cycles=True,
-        add_start_score=True,
+        add_start_score=False,
     ):
     # precomputes the distance tables used for decoding
     W, C, input_dists, ctx_dists = precompute_transition_tables(state, m, n, beta)
@@ -244,6 +244,37 @@ def beam_decode_chains(
             beams = rescored[:beam_width]
     return beams
 
+
+def soft_replay_match(chain, replay_bmus, n_cols):
+    decoded_coords = [flat_to_coord(c, n_cols) for c in chain]
+    replay_coords = [flat_to_coord(c, n_cols) for c in replay_bmus]
+
+    dists = []
+    exact = 0
+
+    for a, b in zip(decoded_coords, replay_coords):
+        if a == b:
+            exact += 1
+
+        # grid distance between decoded BMU and replay BMU
+        di = abs(a[0] - b[0])
+        dj = abs(a[1] - b[1])
+        dists.append(di + dj)   # Manhattan distance on map
+
+    mean_grid_error = sum(dists) / len(dists)
+    max_grid_error = max(dists)
+    exact_fraction = exact / len(dists)
+
+    # simple score: 1 is perfect, lower is worse
+    soft_score = 1 / (1 + mean_grid_error)
+
+    return {
+        "exact_fraction": exact_fraction,
+        "mean_grid_error": mean_grid_error,
+        "max_grid_error": max_grid_error,
+        "soft_score": soft_score,
+        "step_grid_errors": dists,
+    }
 
 def chain_to_prototype_sequence(state, m, n, chain):
     # converts a decoded neuron chain into the corresponding sequence of prototypes
