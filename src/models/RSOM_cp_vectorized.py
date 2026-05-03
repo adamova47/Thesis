@@ -219,8 +219,11 @@ class RSOM(SOM_vectorized):
             # old_main_weights = self.weights.copy()
             # old_context_weights = self.context_weights.copy()
 
-            for seq in sequences:
-                self.reset_context()  
+            order = cp.random.permutation(len(sequences))
+
+            for seq_idx in order:
+                seq = sequences[int(seq_idx)]
+                self.reset_context()
                 for x in seq:
                     d_comb, y, bmu = self._compute_energy_and_activity(x)
                     self.update_weights(x, bmu, lr, radius)

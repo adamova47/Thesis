@@ -148,8 +148,13 @@ class MSOM(SOM_vectorized):
             # old_w = self.weights.copy()
             # old_c = self.context_weights.copy()
 
+            order = cp.random.permutation(len(sequences))
+
             # training pass
-            for seq in sequences:
+            for seq_idx in order:
+
+                seq = sequences[int(seq_idx)]
+                
                 prev_bmu = None
                 # sequence boundaries should reset temporal state
                 # even if later you decide to use some cross-epoch carryover
