@@ -75,6 +75,11 @@ def main():
     print("    first 5 decoded points:")
     print(np.round(decoded[:5], 4))
 
+    plot_inverse_mapping_results(inverse_results)
+
+    weakness = map_weakness_diagnostics(best, inverse_results)
+    plot_map_weakness_diagnostics(weakness)
+
 
 if __name__ == "__main__":
     main()
