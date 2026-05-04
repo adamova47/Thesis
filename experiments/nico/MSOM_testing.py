@@ -86,8 +86,8 @@ def normalize_sequences(x, eps=1e-8):
 
 def compute_hits(msom, x, m, n):
     """
-    same idea as your Mackey hit counting, but adapted for many sequences.
-    prev_bmu resets at the start of each grasp sequence.
+    same idea as your Mackey hit counting, but adapted for many sequences
+    prev_bmu resets at the start of each grasp sequence
     """
     hits = cp.zeros((m, n), dtype=cp.int32)
     for seq in x:
@@ -158,17 +158,14 @@ def main():
     x = normalize_sequences(x)
     x = [cp.asarray(seq, dtype=cp.float32) for seq in x]
 
-    dims = [(4, 4)]
-    """, (5, 5), (6, 6), (7, 7), (8, 8)"""
+    dims = [(4, 4), (5, 5), (6, 6), (7, 7), (8, 8)]
 
     inits = ["sample"]
     metrics = ["manhattan"]
     kernels = ["gaussian"]
 
-    alphas = [0.1] 
-    """, 0.2, 0.4, 0.6, 0.8"""
-    betas = [0.2] 
-    """, 0.5, 0.8"""
+    alphas = [0.1, 0.2, 0.4, 0.6, 0.8] 
+    betas = [0.2, 0.5, 0.8]
 
     epochs = 150
 
