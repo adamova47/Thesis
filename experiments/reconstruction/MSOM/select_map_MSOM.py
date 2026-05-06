@@ -31,7 +31,7 @@ def results_to_dataframe(results_dict):
     # we loop over every saved experiment in the pickle file
     for key, val in results_dict.items():
         # the key is: (m, n, init, metric, kernel, alpha, beta, train_epochs)
-        m, n, init, metric, kernel, alpha, beta, train_epochs = key
+        m, n, init, metric, kernel, alpha, beta, train_epochs, seed = key
         # pull out the performance metrics saved for this run
         qe = float(val["qe"])
         entropy = float(val["entropy"])
@@ -62,6 +62,7 @@ def results_to_dataframe(results_dict):
             "alpha": alpha,
             "beta": beta,
             "train_epochs": train_epochs,
+            "seed": seed,
             "best_epoch": best_epoch,
             "qe": qe,
             "entropy": entropy,
