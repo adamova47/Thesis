@@ -160,9 +160,9 @@ def main():
 
     dims = [(4, 4), (5, 5), (6, 6), (7, 7), (8, 8)]
 
-    inits = ["sample"]
-    metrics = ["manhattan"]
-    kernels = ["gaussian"]
+    inits = ["uniform", "sample", "pca"]
+    metrics = ["euclid", "manhattan"]
+    kernels = ["gaussian", "bubble"]
 
     alphas = [0.1, 0.2, 0.4, 0.6, 0.8] 
     betas = [0.2, 0.5, 0.8]
