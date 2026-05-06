@@ -100,6 +100,7 @@ def run_config(params):
         "beta": beta,
         "state": export_msom_state(msom),
         "qe": qe,
+        "qe_history": to_cpu(msom.temporal_q_error_history),
         "entropy": entropy,
         "dead_neurons": dead_neurons,
         "msom": msom
@@ -156,6 +157,7 @@ def main():
         all_results[key] = {
             "state": result["state"],
             "qe": result["qe"],
+            "qe_history": result["qe_history"],
             "entropy": result["entropy"],
             "dead_neurons": result["dead_neurons"],
             "best_epoch": result["best_epoch"],
@@ -167,9 +169,6 @@ def main():
     plot_quantization_error(best_msom)
     plot_temporal_quantization_error(best_msom)
     plot_trajectory_map(best_msom)
-    # plot_recursive_state_evolution(best_msom, 100)
-    # plot_temporal_similarity(best_msom)
-    # plot_context_norms(best_msom)
     plt.show()
 
 
