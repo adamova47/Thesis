@@ -111,7 +111,6 @@ def main():
     x = cp.asarray(smart_normalize(x), dtype=cp.float32)
     y = df["t+1"].values.reshape(-1, 1)
 
-    # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
     dims = [(11,11), (10,13), (11,13), (12,12), (12,13)]
     """(11,11), (11,12), (12,11), (12,12), (12,13), (13,12), (10,12), (10,13), (11,13)"""
     inits = ["sample"]
