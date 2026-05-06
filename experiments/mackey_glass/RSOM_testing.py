@@ -70,7 +70,7 @@ def run_config(params):
         seed=42
     )
     rsom.train(x, num_epochs=epochs)
-    qe = rsom.q_error_history[-1]
+    qe = rsom.temporal_q_error_history[-1]
 
     hits = cp.zeros((m, n), dtype=cp.int32)
     Q = rsom.m * rsom.n
@@ -101,6 +101,7 @@ def run_config(params):
         "beta": beta,
         "state": export_rsom_state(rsom),
         "qe": qe,
+        "qe_history": to_cpu(rsom.temporal_q_error_history),
         "entropy": entropy,
         "dead_neurons": dead_neurons,
         "rsom": rsom
@@ -113,9 +114,7 @@ def main():
     x = cp.asarray(smart_normalize(x), dtype=cp.float32)
     y = df["t+1"].values.reshape(-1, 1)
 
-    # dims = [(m, n) for m in range(8, 16) for n in range(m, 16) if 80 <= m*n <= 150]
-    dims = [(11,11)]
-    """(9,9), (10,10), (8,12), (9,12), (11,11), (10,13), (12,12)"""
+    dims = [(8,12), (9,9), (9,12), (10,10), (10,13), (11,11), (12,12)]
     inits = ["uniform", "sample", "pca"]
     metrics = ["euclid", "manhattan"]
     kernels = ["gaussian", "bubble"]
@@ -159,6 +158,7 @@ def main():
         all_results[key] = {
             "state": result["state"],
             "qe": result["qe"],
+            "qe_history": result["qe_history"],
             "entropy": result["entropy"],
             "dead_neurons": result["dead_neurons"],
             "best_epoch": result["best_epoch"],
@@ -170,9 +170,7 @@ def main():
     plot_quantization_error(best_rsom)
     plot_temporal_quantization_error(best_rsom)
     plot_trajectory_map(best_rsom)
-    # plot_recursive_state_evolution(best_rsom, 100)
-    # plot_temporal_similarity(best_rsom)
-    # plot_context_norms(best_rsom)
+
     plt.show()
 
 
