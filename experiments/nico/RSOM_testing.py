@@ -3,6 +3,7 @@ import json
 import cupy as cp
 import numpy as np
 from joblib import Parallel, delayed
+import pandas as pd
 import sys
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(project_root)
 
-from src.models.MSOM_cp_vectorized import MSOM
+from src.models.RSOM_cp_vectorized import RSOM
 from src.models.utils import *
 
 
@@ -28,12 +29,13 @@ def make_result_key(result):
     )
 
 
-def export_msom_state(msom):
+def export_rsom_state(rsom):
     return {
-        "weights": cp.asnumpy(msom.weights),
-        "context_weights": cp.asnumpy(msom.context_weights),
-        "bmu_trajectories": to_cpu(msom.bmu_trajectories),
-        "sequence_lengths": list(msom.sequence_lengths)
+        "weights": cp.asnumpy(rsom.weights),
+        "context_weights": cp.asnumpy(rsom.context_weights),
+        "bmu_trajectories": to_cpu(rsom.bmu_trajectories),
+        "activity_trajectories": to_cpu(rsom.activity_trajectories),
+        "sequence_lengths": list(rsom.sequence_lengths)
     }
 
 
@@ -85,19 +87,15 @@ def normalize_sequences(x, eps=1e-8):
     return x_norm
 
 
-def compute_hits(msom, x, m, n):
-    """
-    same idea as your Mackey hit counting, but adapted for many sequences
-    prev_bmu resets at the start of each grasp sequence
-    """
+def compute_hits(rsom, x, m, n):
     hits = cp.zeros((m, n), dtype=cp.int32)
+    Q = rsom.m * rsom.n
     for seq in x:
-        prev_bmu = None
+        rsom.context_vector = cp.zeros(Q, dtype=rsom.weights.dtype)
         for xi in seq:
-            C_t = msom._compute_context_descriptor(prev_bmu)
-            bmu = msom.find_bmu(xi, C_t)
-            prev_bmu = bmu
+            _, y, bmu = rsom._compute_energy_and_activity(xi)
             hits[bmu] += 1
+            rsom.context_vector = y
     return hits.get()
 
 
@@ -106,7 +104,7 @@ def run_config(params):
 
     dim = x[0].shape[1]
 
-    msom = MSOM(
+    rsom = RSOM(
         m=m,
         n=n,
         dim=dim,
@@ -118,35 +116,34 @@ def run_config(params):
         seed=42
     )
 
-    msom.train(x, num_epochs=epochs)
+    rsom.train(x, num_epochs=epochs)
 
-    qe = float(msom.temporal_q_error_history[-1])
-    static_qe = float(msom.q_error_history[-1])
+    qe = rsom.temporal_q_error_history[-1]
 
-    hits = compute_hits(msom, x, m, n)
+    hits = compute_hits(rsom, x, m, n)
 
-    dead_neurons = int((hits == 0).sum())
-
+    dead_neurons = (hits == 0).sum()
     utilization = hits / hits.sum()
+
     p = utilization[utilization > 0]
-    entropy = float(-np.sum(p * np.log(p)))
+    entropy = -np.sum(p * np.log(p))
 
     return {
         "m": m,
         "n": n,
         "train_epochs": epochs,
-        "best_epoch": msom.best_epoch + 1,
+        "best_epoch": rsom.best_epoch + 1,
         "init": init,
         "metric": metric,
         "kernel": kernel,
         "alpha": alpha,
         "beta": beta,
-        "state": export_msom_state(msom),
+        "state": export_rsom_state(rsom),
         "qe": qe,
-        "qe_history": to_cpu(msom.temporal_q_error_history),
+        "qe_history": to_cpu(rsom.temporal_q_error_history),
         "entropy": entropy,
         "dead_neurons": dead_neurons,
-        "msom": msom
+        "rsom": rsom
     }
 
 
@@ -165,12 +162,12 @@ def main():
     metrics = ["euclid", "manhattan"]
     kernels = ["gaussian", "bubble"]
 
-    alphas = [0.1, 0.2, 0.4, 0.6, 0.8] 
+    alphas = [0.1, 0.2, 0.4, 0.6, 0.8]
     betas = [0.2, 0.5, 0.8]
 
     epochs = 150
 
-    results_file = os.path.join(script_dir, "msom_nico_results.pkl")
+    results_file = os.path.join(script_dir, "rsom_nico_results.pkl")
 
     configs = [
         (m, n, init, metric, kernel, a, b, x, y, epochs)
@@ -187,15 +184,12 @@ def main():
     )
 
     best = min(results, key=lambda r: r["qe"])
-    best_msom = best["msom"]
+    best_rsom = best["rsom"]
 
-    print(
-        f"Best config: m={best['m']}, n={best['n']}, init={best['init']}, "
+    print(f"Best config: m={best['m']}, n={best['n']}, init={best['init']}, "
         f"metric={best['metric']}, kernel={best['kernel']}, "
         f"alpha={best['alpha']}, beta={best['beta']}, "
-        f"QE={best['qe']}, Static QE={best['static_qe']}, "
-        f"Entropy={best['entropy']}, Dead neurons={best['dead_neurons']}"
-    )
+        f"QE={best['qe']}, Entropy={best['entropy']}, Dead neurons={best['dead_neurons']}")
 
     all_results = load_results_dict(results_file)
 
@@ -212,9 +206,9 @@ def main():
 
     pickle_dump(all_results, results_file)
 
-    plot_quantization_error(best_msom)
-    plot_temporal_quantization_error(best_msom)
-    plot_trajectory_map(best_msom)
+    plot_quantization_error(best_rsom)
+    plot_temporal_quantization_error(best_rsom)
+    plot_trajectory_map(best_rsom)
 
     plt.show()
 
