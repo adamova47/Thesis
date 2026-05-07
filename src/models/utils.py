@@ -56,9 +56,9 @@ def plot_quantization_error(som):
 
 def plot_temporal_quantization_error(xsom):
     if hasattr(xsom.temporal_q_error_history[0], "get"):
-        q_errors = [err.get() for err in xsom.q_error_history]
+        q_errors = [err.get() for err in xsom.temporal_q_error_history]
     else:
-        q_errors = xsom.q_error_history
+        q_errors = xsom.temporal_q_error_history
 
     epochs = range(1, len(q_errors) + 1)
     plt.figure()
