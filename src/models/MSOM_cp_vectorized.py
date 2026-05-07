@@ -209,6 +209,8 @@ class MSOM(SOM_vectorized):
                 wait = 0
                 best_weights = self.weights.copy()
                 best_context_weights = self.context_weights.copy()
+                best_q_error_history = self.q_error_history.copy()
+                best_temporal_q_error_history = self.temporal_q_error_history.copy()
             else:
                 wait += 1
 
@@ -220,6 +222,8 @@ class MSOM(SOM_vectorized):
         if best_weights is not None:
             self.weights = best_weights
             self.context_weights = best_context_weights
+            self.q_error_history = best_q_error_history
+            self.temporal_q_error_history = best_temporal_q_error_history
         else:
             self.best_epoch = num_epochs - 1
 
