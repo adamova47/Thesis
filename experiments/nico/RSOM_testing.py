@@ -118,7 +118,8 @@ def run_config(params):
 
     rsom.train(x, num_epochs=epochs)
 
-    qe = rsom.temporal_q_error_history[-1]
+    qe = float(rsom.temporal_q_error_history[-1])
+    static_qe = float(rsom.q_error_history[-1])
 
     hits = compute_hits(rsom, x, m, n)
 
@@ -140,6 +141,7 @@ def run_config(params):
         "beta": beta,
         "state": export_rsom_state(rsom),
         "qe": qe,
+        "static_qe": static_qe,
         "qe_history": to_cpu(rsom.temporal_q_error_history),
         "entropy": entropy,
         "dead_neurons": dead_neurons,
@@ -156,7 +158,8 @@ def main():
     x = normalize_sequences(x)
     x = [cp.asarray(seq, dtype=cp.float32) for seq in x]
 
-    dims = [(4, 4), (5, 5), (6, 6), (7, 7), (8, 8)]
+    dims = [(4, 4)]
+    """, (5, 5), (6, 6), (7, 7), (8, 8)"""
 
     inits = ["uniform", "sample", "pca"]
     metrics = ["euclid", "manhattan"]
@@ -189,7 +192,8 @@ def main():
     print(f"Best config: m={best['m']}, n={best['n']}, init={best['init']}, "
         f"metric={best['metric']}, kernel={best['kernel']}, "
         f"alpha={best['alpha']}, beta={best['beta']}, "
-        f"QE={best['qe']}, Entropy={best['entropy']}, Dead neurons={best['dead_neurons']}")
+        f"QE={best['qe']}, Static QE={best['static_qe']}, "
+        f"Entropy={best['entropy']}, Dead neurons={best['dead_neurons']}")
 
     all_results = load_results_dict(results_file)
 
