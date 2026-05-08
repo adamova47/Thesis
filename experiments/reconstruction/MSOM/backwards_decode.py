@@ -28,6 +28,8 @@ def unpack_state(state, m, n):
 def flat_to_coord(idx, n_cols):
     # converts a flat neuron index into its 2D map coordinate (row, column)
     # echample: for n_cols=10, flat idx=23 -> coord=(2, 3) because it's in the 3rd row (0-based) and 4th column (0-based)
+    idx = int(idx)
+    n_cols = int(n_cols)
     return (idx // n_cols, idx % n_cols)
 
 
@@ -35,7 +37,7 @@ def coord_to_flat(coord, n_cols):
     # converts a 2D map coordinate (row, column) back into a flat neuron index
     # echample: for n_cols=10, coord=(2, 3) -> flat idx=23 because it's in the 3rd row (0-based) and 4th column (0-based)
     i, j = coord
-    return i * n_cols + j
+    return int(i) * int(n_cols) + int(j)
 
 
 def pairwise_sqdist(A, B):
@@ -246,6 +248,15 @@ def beam_decode_chains(
 
 
 def soft_replay_match(chain, replay_bmus, n_cols):
+    if len(chain) == 0 or len(replay_bmus) == 0:
+        return {
+            "exact_fraction": 0.0,
+            "mean_grid_error": float("inf"),
+            "max_grid_error": float("inf"),
+            "soft_score": 0.0,
+            "step_grid_errors": [],
+        }
+    
     decoded_coords = [flat_to_coord(c, n_cols) for c in chain]
     replay_coords = [flat_to_coord(c, n_cols) for c in replay_bmus]
 
@@ -311,6 +322,24 @@ def top_hit_neurons(state, m, n, top_k=5):
     counts = count_bmu_hits(state, m, n)
     top = np.argsort(counts)[::-1][:top_k]
     return top, counts
+
+
+def count_predecessor_hits(state, m, n):
+    counts = np.zeros(m * n, dtype=np.int32)
+    for seq in state["bmu_trajectories"]:
+        for t in range(1, len(seq)):
+            idx = coord_to_flat(seq[t], n)
+            counts[idx] += 1
+    return counts
+
+
+def top_successor_neurons(state, m, n, top_k=5, min_predecessors=1):
+    pred_counts = count_predecessor_hits(state, m, n)
+    valid = np.where(pred_counts >= min_predecessors)[0]
+    if len(valid) == 0:
+        return np.array([], dtype=np.int32), pred_counts
+    order = valid[np.argsort(pred_counts[valid])[::-1]]
+    return order[:top_k], pred_counts
 
 
 def extract_real_predecessors(state, m, n, target_flat_idx, k=5):
@@ -402,16 +431,42 @@ def plot_decoded_chain_on_map(m, n, chain, title="Decoded chain"):
     plt.show()
 
 
-def plot_prototype_sequence(proto_seq, title="Decoded prototype sequence"):
-    if proto_seq.shape[1] < 2:
-        raise ValueError("plot_prototype_sequence needs dim >= 2")
-    plt.figure(figsize=(5, 4))
-    plt.plot(proto_seq[:, 0], proto_seq[:, 1], "o-")
-    for t, (x, y) in enumerate(proto_seq[:, :2]):
-        plt.text(x, y, str(t), fontsize=8)
+def plot_decoded_vs_replay_chain(m, n, decoded_chain, replay_chain, title="Decoded vs replayed BMU chain"):
+    decoded_coords = [flat_to_coord(c, n) for c in decoded_chain]
+    replay_coords = [flat_to_coord(c, n) for c in replay_chain]
+    dx = [c[1] for c in decoded_coords]
+    dy = [c[0] for c in decoded_coords]
+    rx = [c[1] for c in replay_coords]
+    ry = [c[0] for c in replay_coords]
+    plt.figure(figsize=(5, 5))
+    plt.xlim(-0.5, n - 0.5)
+    plt.ylim(-0.5, m - 0.5)
+    plt.grid(True, alpha=0.3)
+    plt.plot(dx, dy, "o-", label="decoded chain")
+    plt.plot(rx, ry, "x--", label="replayed chain")
+    for t, (x, y) in enumerate(zip(dx, dy)):
+        plt.text(x + 0.05, y + 0.05, str(t), fontsize=8)
     plt.title(title)
-    plt.xlabel("x1")
-    plt.ylabel("x2")
+    plt.xlabel("j")
+    plt.ylabel("i")
+    plt.legend()
+    plt.gca().set_aspect("equal")
+    plt.tight_layout()
+    plt.show()
+
+def plot_decoded_vs_closest_real_error(proto_seq, real_window, label=None, seq_id=None, start=None):
+    proto_seq = np.asarray(proto_seq)
+    real_window = np.asarray(real_window)
+    errors = np.linalg.norm(proto_seq - real_window, axis=1)
+    mean_error = float(np.mean(errors))
+    plt.figure(figsize=(7, 4))
+    plt.plot(np.arange(len(errors)), errors, "o-")
+    plt.xlabel("time step")
+    plt.ylabel("decoded-to-real distance")
+    plt.title(
+        f"Decoded prototype vs closest real window\n"
+        f"{label}, seq={seq_id}, window={start}..{start + len(errors) - 1}, mean={mean_error:.4f}"
+    )
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
