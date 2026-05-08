@@ -261,7 +261,7 @@ def plot_sequence_reconstruction(original, decoded, seq_idx=0, split_idx=None):
         plt.figure(figsize=(12, 4))
         plt.plot(t, original[:, d], label=f"original dim {d}")
         plt.plot(t, decoded[:, d], "--", label=f"decoded dim {d}")
-        if split_idx is not None:
+        if split_idx is not None and 0 < split_idx < len(original):
             plt.axvline(split_idx, linestyle=":", label="train/test split")
         plt.title(f"Sequence {seq_idx} - original vs decoded (dim {d})")
         plt.xlabel("time step")
@@ -273,7 +273,7 @@ def plot_sequence_reconstruction(original, decoded, seq_idx=0, split_idx=None):
     for d in range(dims):
         plt.figure(figsize=(12, 4))
         plt.plot(t, abs_err[:, d], label=f"|error| dim {d}")
-        if split_idx is not None:
+        if split_idx is not None and 0 < split_idx < len(original):
             plt.axvline(split_idx, linestyle=":", label="train/test split")
         plt.title(f"Sequence {seq_idx} - absolute error (dim {d})")
         plt.xlabel("time step")
@@ -378,11 +378,7 @@ def safe_corr(a, b):
 def map_weakness_diagnostics(best_row, inverse_results):
     """
     Tests whether reconstruction errors correlate with map weakness.
-
-    Map weakness indicators:
-        1. low BMU hit count
-        2. high input quantization error
-        3. specific neurons having high mean reconstruction error
+    Map weakness indicators: low BMU hit count, high input quantization error, specific neurons having high mean reconstruction error
     """
     state = best_row["state"]
     m = int(best_row["m"])
@@ -411,10 +407,10 @@ def map_weakness_diagnostics(best_row, inverse_results):
         input_qe, bmu_flat, n_neurons
     )
 
-    # Correlations over visited neurons
+    # correlations over visited neurons
     corr_recon_qe = safe_corr(mean_recon_by_neuron, mean_qe_by_neuron)
 
-    # Hit count correlation uses only visited neurons.
+    # hit count correlation uses only visited neurons
     hit_counts_float = hit_counts.astype(np.float64)
     hit_counts_float[hit_counts == 0] = np.nan
     corr_recon_hits = safe_corr(mean_recon_by_neuron, hit_counts_float)
@@ -432,7 +428,7 @@ def map_weakness_diagnostics(best_row, inverse_results):
     print(f"    corr(mean recon error, mean input QE): {corr_recon_qe:.6f}")
     print(f"    corr(mean recon error, hit count):     {corr_recon_hits:.6f}")
 
-    # Show highest-error neurons
+    # show highest-error neurons
     ranked = np.argsort(np.nan_to_num(mean_recon_by_neuron, nan=-1.0))[::-1]
 
     print("\nHighest mean reconstruction-error neurons:")
@@ -502,7 +498,7 @@ def plot_map_weakness_diagnostics(diag):
     plt.tight_layout()
     plt.show()
 
-    # Scatter: input QE vs reconstruction error
+    # scatter: input QE vs reconstruction error
     x = diag["mean_qe_by_neuron"]
     y = diag["mean_recon_by_neuron"]
     hits = diag["hit_counts"]
@@ -526,7 +522,7 @@ def plot_map_weakness_diagnostics(diag):
     plt.tight_layout()
     plt.show()
 
-    # Timestep-level diagnostic
+    # timestep-level diagnostic
     t = np.arange(len(diag["recon_err"]))
 
     plt.figure(figsize=(12, 4))
