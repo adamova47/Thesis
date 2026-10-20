@@ -141,11 +141,18 @@ def main():
     # save at the end
     pickle_dump(all_results, results_file)
 
+    plots_dir = os.path.join(here, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
     plot_quantization_error(best_som)
+    plt.savefig(os.path.join(plots_dir, "quantization_error.png"), dpi=300, bbox_inches="tight")
     plot_avg_adjustment(best_som)
+    plt.savefig(os.path.join(plots_dir, "avg_adjustment.png"), dpi=300, bbox_inches="tight")
     plot_winner_map(best_som, x, y)
+    plt.savefig(os.path.join(plots_dir, "winner_map.png"), dpi=300, bbox_inches="tight")
     plot_feature_heatmaps(best_som)
+    plt.savefig(os.path.join(plots_dir, "feature_heatmaps.png"), dpi=300, bbox_inches="tight")
     plot_u_matrix(best_som)
+    plt.savefig(os.path.join(plots_dir, "u_matrix.png"), dpi=300, bbox_inches="tight")
     plt.show()
 
 

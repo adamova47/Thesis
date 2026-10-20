@@ -101,7 +101,6 @@ def run_config(params):
         "beta": beta,
         "state": export_rsom_state(rsom),
         "qe": qe,
-        "qe_history": to_cpu(rsom.temporal_q_error_history),
         "entropy": entropy,
         "dead_neurons": dead_neurons,
         "rsom": rsom
@@ -114,17 +113,17 @@ def main():
     x = cp.asarray(smart_normalize(x), dtype=cp.float32)
     y = df["t+1"].values.reshape(-1, 1)
 
-    dims = [(8,12), (9,9), (9,12), (10,10), (10,13), (11,11), (12,12)]
-    inits = ["uniform", "sample", "pca"]
+    dims = [(13,13)]
+    inits = ["uniform", "sample"]
     metrics = ["euclid", "manhattan"]
-    kernels = ["gaussian", "bubble"]
+    kernels = ["bubble"]
 
-    alphas = [0.1, 0.3, 0.6, 0.9]
-    betas = [0.1, 0.3, 0.6, 0.9]
+    alphas = [0.2, 0.3, 0.4]
+    betas = [0.9, 0.85, 0.8, 0.75]
 
     epochs = 250
 
-    results_file = os.path.join(os.path.dirname(__file__), "rsom_results.pkl")
+    results_file = os.path.join(os.path.dirname(__file__), "rsom_results_crashout.pkl")
 
     configs = [
         (m, n, init, metric, kernel, a, b, x, epochs)
@@ -158,7 +157,6 @@ def main():
         all_results[key] = {
             "state": result["state"],
             "qe": result["qe"],
-            "qe_history": result["qe_history"],
             "entropy": result["entropy"],
             "dead_neurons": result["dead_neurons"],
             "best_epoch": result["best_epoch"],
@@ -167,9 +165,18 @@ def main():
     # save at the end
     pickle_dump(all_results, results_file)
 
+    state = best["state"]
+    m = best["m"]
+    n = best["n"]
+
+    plots_dir = os.path.join(os.path.dirname(__file__), "plots_RecSOM")
+    os.makedirs(plots_dir, exist_ok=True)
+
     plot_quantization_error(best_rsom)
+    plt.savefig(os.path.join(plots_dir, "quantization_error.png"), dpi=300, bbox_inches="tight")
     plot_temporal_quantization_error(best_rsom)
-    plot_trajectory_map(best_rsom)
+    plt.savefig(os.path.join(plots_dir, "temporal_quantization_error.png"), dpi=300, bbox_inches="tight")
+    # plot_trajectory_map(best_rsom)
 
     plt.show()
 

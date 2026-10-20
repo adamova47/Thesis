@@ -40,7 +40,7 @@ def load_dataset_sequences(dataset, base_dir):
         data_path = base_dir / "mackey_glass" / "mackey_glass.xlsx"
         sequences = load_mackey_glass_sequence(data_path)
         labels = None
-        results_path = base_dir / "mackey_glass" / "rsom_results.pkl"
+        results_path = base_dir / "mackey_glass" / "rsom_results_fixed_temporal_qe.pkl"
     elif dataset == "nico":
         data_path = base_dir / "nico" / "dataset.json"
         sequences, labels = load_nico_dataset(data_path)
@@ -52,7 +52,7 @@ def load_dataset_sequences(dataset, base_dir):
 
 
 def main():
-    dataset = "mackey" # change to "mackey" if needed
+    dataset = "nico" # change to "mackey" if needed
     show_plots = False
     base_dir = Path(__file__).resolve().parent.parent.parent
     results_path, sequences, labels = load_dataset_sequences(dataset, base_dir)

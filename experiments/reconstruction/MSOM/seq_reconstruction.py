@@ -1,5 +1,10 @@
 from backwards_decode import *
 from select_map_MSOM import *
+import sys
+RSOM_DIR = Path(__file__).resolve().parents[1] / "RSOM"
+sys.path.append(str(RSOM_DIR))
+
+from inverse_mapping import load_mackey_glass_sequence
 
 import json
 
@@ -68,6 +73,11 @@ def print_reconstruction_summary(
         top_k_targets=5,
         depth=5,
         beam_width=3,
+        margin_weight=2.0,
+        hard_self_consistent=False,
+        allow_self=True,
+        avoid_cycles=True,
+        add_start_score=True,
         show_plots=True,
         print_prototypes=True,
         max_proto_dims=10,
@@ -118,11 +128,11 @@ def print_reconstruction_summary(
             target_idx=int(idx),
             depth=depth,
             beam_width=beam_width,
-            margin_weight=2.0,
-            hard_self_consistent=False,
-            allow_self=True,
-            avoid_cycles=True,
-            add_start_score=True,
+            margin_weight=margin_weight,
+            hard_self_consistent=hard_self_consistent,
+            allow_self=allow_self,
+            avoid_cycles=avoid_cycles,
+            add_start_score=add_start_score,
         )
 
         if len(beams) == 0:
@@ -243,6 +253,11 @@ def run_reconstruction(
         top_k_targets=5,
         depth=6,
         beam_width=3,
+        margin_weight=2.0,
+        hard_self_consistent=False,
+        allow_self=True,
+        avoid_cycles=True,
+        add_start_score=True,
         show_plots=False,
         print_prototypes=True,
         max_proto_dims=10,
@@ -253,36 +268,36 @@ def run_reconstruction(
     ):
     results_path = Path(results_path)
 
-    print(f"\nDataset/result set: {dataset_name}")
-    print(f"Loading results from: {results_path}")
+    """print(f"\nDataset/result set: {dataset_name}")
+    print(f"Loading results from: {results_path}")"""
 
     results_dict = load_results_dict(results_path)
     df = results_to_dataframe(results_dict)
 
-    print("\nTop 10 by temporal QE:")
+    """print("\nTop 10 by temporal QE:")
     print(df[[
         "m", "n", "neurons", "qe", "entropy", "norm_entropy",
         "dead_neurons", "dead_ratio", "alpha", "beta", "init", "metric", "kernel"
-    ]].head(10).to_string(index=False))
+    ]].head(10).to_string(index=False))"""
 
     # show the filtered shortlist
     short = shortlist_maps(df, qe_tol=0.05, min_norm_entropy=0.70, max_dead_ratio=0.25)
-    print("\nShortlist (near-best QE, decent utilization, not too many dead neurons):")
+    """print("\nShortlist (near-best QE, decent utilization, not too many dead neurons):")
     if len(short) == 0:
         print("No models passed the shortlist filter.")
     else:
         print(short[[
             "m", "n", "neurons", "qe", "entropy", "norm_entropy",
             "dead_neurons", "dead_ratio", "alpha", "beta", "init", "metric", "kernel"
-        ]].head(15).to_string(index=False))
+        ]].head(15).to_string(index=False))"""
 
     # show the pareto front
     front = pareto_front(df)
-    print("\nPareto front:")
+    """print("\nPareto front:")
     print(front[[
         "m", "n", "neurons", "qe", "norm_entropy", "dead_ratio",
         "alpha", "beta", "init", "metric", "kernel"
-    ]].head(20).to_string(index=False))
+    ]].head(20).to_string(index=False))"""
 
     if len(short) > 0:
         candidate_pool = short.copy()
@@ -291,11 +306,11 @@ def run_reconstruction(
 
     # show the final compromise ranking
     compromise = choose_best_compromise(candidate_pool)
-    print("\nBest compromise candidates:")
+    """print("\nBest compromise candidates:")
     print(compromise[[
         "m", "n", "neurons", "qe", "norm_entropy", "dead_ratio",
         "alpha", "beta", "init", "metric", "kernel", "score"
-    ]].head(10).to_string(index=False))
+    ]].head(10).to_string(index=False))"""
 
     # pick the top row as the chosen map
     best = compromise.iloc[0]
@@ -311,6 +326,11 @@ def run_reconstruction(
         top_k_targets=top_k_targets,
         depth=depth,
         beam_width=beam_width,
+        margin_weight=margin_weight,
+        hard_self_consistent=hard_self_consistent,
+        allow_self=allow_self,
+        avoid_cycles=avoid_cycles,
+        add_start_score=add_start_score,
         show_plots=show_plots,
         print_prototypes=print_prototypes,
         max_proto_dims=max_proto_dims,
@@ -321,25 +341,53 @@ def run_reconstruction(
     )
 
 
+
+decoder_setups = [
+    {
+        "name": "C2_depth_6",
+        "depth": 6,
+        "beam_width": 3,
+        "margin_weight": 2.0,
+        "hard_self_consistent": False,
+        "allow_self": True,
+        "avoid_cycles": True,
+        "add_start_score": True,
+    },
+]
+
 def main():
     base_dir = Path(__file__).resolve().parent.parent.parent
 
-    x_real, labels = load_nico_dataset(base_dir / "nico" / "dataset.json")
-    x_real = normalize_sequences(x_real)
+    """x_real, labels = load_nico_dataset(base_dir / "nico" / "dataset.json")
+    x_real = normalize_sequences(x_real)"""
 
-    run_reconstruction(
-        results_path=base_dir / "nico" / "msom_nico_results.pkl",
-        dataset_name="nico",
-        top_k_targets=5,
-        depth=6,
-        beam_width=3,
-        show_plots=True,
-        print_prototypes=False,
-        real_sequences=x_real,
-        labels=labels,
-        top_real_matches=3,
-        verbose_candidates=False,
+    mackey_sequences = load_mackey_glass_sequence(
+        base_dir / "mackey_glass" / "mackey_glass.xlsx"
     )
+
+    for setup in decoder_setups:
+        print("\n" + "=" * 80)
+        print(f"RUNNING SETUP: {setup['name']}")
+        print("=" * 80)
+
+        run_reconstruction(
+            results_path=base_dir / "mackey_glass" / "msom_results_fixed_temporal_qe.pkl",
+            dataset_name=f"mackey_glass_{setup['name']}",
+            top_k_targets=5,
+            depth=setup["depth"],
+            beam_width=setup["beam_width"],
+            margin_weight=setup["margin_weight"],
+            hard_self_consistent=setup["hard_self_consistent"],
+            allow_self=setup["allow_self"],
+            avoid_cycles=setup["avoid_cycles"],
+            add_start_score=setup["add_start_score"],
+            show_plots=True,
+            print_prototypes=False,
+            real_sequences=mackey_sequences,
+            labels=None,
+            top_real_matches=3,
+            verbose_candidates=False,
+        )
 
 
 if __name__ == "__main__":

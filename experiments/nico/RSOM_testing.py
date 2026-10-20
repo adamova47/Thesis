@@ -15,6 +15,29 @@ from src.models.RSOM_cp_vectorized import RSOM
 from src.models.utils import *
 
 
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_hit_map_from_state(state, m, n, title="BMU hit map"):
+    hits = np.zeros((m, n), dtype=int)
+
+    for seq in state["bmu_trajectories"]:
+        for i, j in seq:
+            hits[i, j] += 1
+
+    plt.figure(figsize=(5, 4))
+    plt.imshow(hits, origin="lower")
+    plt.colorbar(label="BMU hits")
+    plt.title(title)
+    plt.xlabel("Grid column")
+    plt.ylabel("Grid row")
+    plt.tight_layout()
+    plt.show()
+
+    return hits
+
+
+
 def make_result_key(result):
     return (
         result["m"],
@@ -158,15 +181,14 @@ def main():
     x = normalize_sequences(x)
     x = [cp.asarray(seq, dtype=cp.float32) for seq in x]
 
-    dims = [(4, 4)]
-    """, (5, 5), (6, 6), (7, 7), (8, 8)"""
+    dims = [(8, 8)]
 
-    inits = ["uniform", "sample", "pca"]
-    metrics = ["euclid", "manhattan"]
-    kernels = ["gaussian", "bubble"]
+    inits = ["pca"]
+    metrics = ["manhattan"]
+    kernels = ["bubble"]
 
-    alphas = [0.1, 0.2, 0.4, 0.6, 0.8]
-    betas = [0.2, 0.5, 0.8]
+    alphas = [0.1]
+    betas = [0.2]
 
     epochs = 150
 
@@ -210,6 +232,15 @@ def main():
 
     pickle_dump(all_results, results_file)
 
+    state = best["state"]
+    m = best["m"]
+    n = best["n"]
+    hits = plot_hit_map_from_state(
+        state,
+        m,
+        n,
+        title="RecSOM BMU hit map"
+    )
     plot_quantization_error(best_rsom)
     plot_temporal_quantization_error(best_rsom)
     plot_trajectory_map(best_rsom)

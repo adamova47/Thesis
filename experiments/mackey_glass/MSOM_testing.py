@@ -12,6 +12,27 @@ sys.path.append(project_root)
 from src.models.MSOM_cp_vectorized import MSOM
 from src.models.utils import *
 
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_hit_map_from_state(state, m, n, title="BMU hit map"):
+    hits = np.zeros((m, n), dtype=int)
+
+    for seq in state["bmu_trajectories"]:
+        for i, j in seq:
+            hits[i, j] += 1
+
+    plt.figure(figsize=(5, 4))
+    plt.imshow(hits, origin="lower")
+    plt.colorbar(label="BMU hits")
+    plt.title(title)
+    plt.xlabel("Grid column")
+    plt.ylabel("Grid row")
+    plt.tight_layout()
+    plt.show()
+
+    return hits
+
 
 def make_result_key(result):
     return (
@@ -113,14 +134,13 @@ def main():
     x = cp.asarray(smart_normalize(x), dtype=cp.float32)
     y = df["t+1"].values.reshape(-1, 1)
 
-    dims = [(11,11), (10,13), (11,13), (12,12), (12,13)]
-    """(11,11), (11,12), (12,11), (12,12), (12,13), (13,12), (10,12), (10,13), (11,13)"""
+    dims = [(12,13)]
     inits = ["sample"]
     metrics = ["manhattan"]
     kernels = ["gaussian"]
 
-    alphas = [0.95, 0.97, 0.98, 0.99, 0.995, 0.999]
-    betas = [0.95, 0.97, 0.98, 0.99, 0.995, 0.999]
+    alphas = [0.999]
+    betas = [0.999]
 
     epochs = 250
 
@@ -149,10 +169,10 @@ def main():
         f"QE={best['qe']}, Entropy={best['entropy']}, Dead neurons={best['dead_neurons']}")
     
     # load the old big dictionary if it exists
-    all_results = load_results_dict(results_file)
+    # all_results = load_results_dict(results_file)
 
     # update or overwrite only the configs from this run
-    for result in results:
+    """for result in results:
         key = make_result_key(result)
         all_results[key] = {
             "state": result["state"],
@@ -161,14 +181,26 @@ def main():
             "entropy": result["entropy"],
             "dead_neurons": result["dead_neurons"],
             "best_epoch": result["best_epoch"],
-        }
+        }"""
+    
+    state = best["state"]
+    m = best["m"]
+    n = best["n"]
 
-    # save at the end
-    pickle_dump(all_results, results_file)
+    plots_dir = os.path.join(os.path.dirname(__file__), "plots_MSOM")
+    os.makedirs(plots_dir, exist_ok=True)
+    hits = plot_hit_map_from_state(
+        state,
+        m,
+        n,
+        title="MSOM BMU hit map"
+    )
+    plt.savefig(os.path.join(plots_dir, "hit_map.png"), dpi=300, bbox_inches="tight")
 
     plot_quantization_error(best_msom)
+    plt.savefig(os.path.join(plots_dir, "quantization_error.png"), dpi=300, bbox_inches="tight")
     plot_temporal_quantization_error(best_msom)
-    plot_trajectory_map(best_msom)
+    plt.savefig(os.path.join(plots_dir, "temporal_quantization_error.png"), dpi=300, bbox_inches="tight")
     plt.show()
 
 

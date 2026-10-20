@@ -42,7 +42,7 @@ def results_to_dataframe(results_dict):
             "norm_entropy": norm_entropy,
             "dead_neurons": dead_neurons,
             "dead_ratio": dead_ratio,
-            "weights": val["weighs"],
+            "weights": val["weights"],
             "key": key,
         })
 
@@ -112,7 +112,7 @@ def choose_best_compromise(df):
 
 
 def main():
-    results_path = Path(__file__).resolve().parent / "som_results.pkl"
+    results_path = Path(__file__).resolve().parent / "som_results_exponential.pkl"
     results_dict = load_results_dict(results_path)
     df = results_to_dataframe(results_dict)
 
